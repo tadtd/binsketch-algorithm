@@ -1,2 +1,9 @@
-bbc-datasets/
-dataset/
+data/
+raw/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.zip
+*.tar.gz
