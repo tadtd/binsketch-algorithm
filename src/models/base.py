@@ -5,6 +5,6 @@ class SketchModel(ABC):
         pass
 
     @abstractmethod
-    def transform(self, X):
+    def mapping(self, X):
         pass
     
