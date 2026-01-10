@@ -76,10 +76,7 @@ To estimate the Inner Product (IP) between sketches $\mathbf{a}_s$ and $\mathbf{
 
 ---
 
-## Phase 3: Evaluation (The Deliverables)
-
-Combining the work of all three persons, you should produce the following graphs to match the source paper:
-
+## Evaluation 
 ### 1. MSE Accuracy
 * **X-Axis:** Compression Length ($N$). (Range: 100 to ~5500).
 * **Y-Axis:** MSE (for IP) or $-\ln(\text{MSE})$ (for Jaccard/Cosine).
