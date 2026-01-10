@@ -2,7 +2,7 @@ from .base import SketchModel
 import numpy as np
 
 class SimHash(SketchModel):
-    def __init__(self, n_bits: int = 128):
+    def __init__(self):
         super().__init__()
 
     def transform(self, X: np.ndarray) -> np.ndarray:
