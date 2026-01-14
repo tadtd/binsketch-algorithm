@@ -6,7 +6,7 @@ class MinHash(SketchModel):
     def __init__(self, seed: int = 42):
         super().__init__(seed=seed)
 
-    def mapping(self, X: csr_matrix, k: int) -> np.ndarray:
+    def mapping(self, X: csr_matrix, k: int) -> csr_matrix:
         """
         Projects high-dimensional binary data into a lower-dimensional MinHash sketch.
         Args:
@@ -15,7 +15,7 @@ class MinHash(SketchModel):
         """
         raise NotImplementedError("Mapping method not implemented yet.")
     
-    def estimate_jaccard_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
+    def estimate_jaccard_similarity(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
         """
         Estimates Jaccard similarity.
         """

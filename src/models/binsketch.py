@@ -62,7 +62,11 @@ class BinSketch(SketchModel):
         """
         Estimates Hamming distance.
         """
-        raise NotImplementedError("Hamming distance estimation not implemented yet.")
+        spar_est_1 = self._estimate_sparsity(sketch1)
+        spar_est_2 = self._estimate_sparsity(sketch2)
+        est_ip = self.estimate_inner_product(sketch1, sketch2)
+        Bin_Ham_est = spar_est_1 + spar_est_2 - 2*est_ip
+        return Bin_Ham_est
     
     def estimate_jaccard_similarity(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
         """
