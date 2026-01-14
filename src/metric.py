@@ -1,6 +1,7 @@
 import numpy as np
+from scipy.sparse import csr_matrix
 
-def mse(v1: np.ndarray, v2: np.ndarray) -> float:
+def mse(v1: csr_matrix, v2: csr_matrix) -> float:
     """Compute the Mean Squared Error between two vectors."""
     if v1.shape != v2.shape:
         raise ValueError("Vectors must be of the same length")
@@ -8,7 +9,7 @@ def mse(v1: np.ndarray, v2: np.ndarray) -> float:
     return float(np.mean((v1 - v2) ** 2))
 
 
-def minus_log_mse(v1: np.ndarray, v2: np.ndarray) -> float:
+def minus_log_mse(v1: csr_matrix, v2: csr_matrix) -> float:
     """Compute the Negative Log Mean Squared Error between two vectors."""
     mse_value = mse(v1, v2)
     if mse_value == 0:
