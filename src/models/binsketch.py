@@ -48,7 +48,7 @@ class BinSketch(SketchModel):
         _, n = sketch1.shape
         spar_est_1 = self._estimate_sparsity(sketch1)
         spar_est_2 = self._estimate_sparsity(sketch2)
-        IP = int(sketch1@(sketch2.T).toarray()[0,0])
+        IP = int(sketch1.multiply(sketch2).sum())
         val = (1-1/n)**spar_est_1 + (1-1/n)**spar_est_2 - 1 + IP/n
         if val > 0:
             Bin_IP_est = np.round(spar_est_1 + spar_est_2 - (np.log(val)/np.log(1-1/n)))

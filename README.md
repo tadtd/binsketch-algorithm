@@ -1,5 +1,56 @@
 # BinSketch Algorithm
 
+## Installation
+
+### Prerequisites
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/)
+
+### Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/tadtd/binsketch-algorithm
+cd binsketch-algorithm 
+```
+
+2. Install uv (if you haven't already):
+```bash
+# Windows (PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+3. Install dependencies:
+```bash
+uv sync
+```
+
+4. Activate the virtual environment:
+```bash
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# Windows (CMD)
+.venv\Scripts\activate.bat
+
+# macOS/Linux
+source .venv/bin/activate
+```
+
+
+### Running the testing Code (after the environment is set up)
+
+```bash
+python test_pipeline.py --algo BinSketch BCS --output my_results.json
+```
+---
+
+## Project Structure
+
+## Task Breakdown
 
 ### Person 1: The Core (BinSketch & Inner Product)
 **Responsibility:** Main sketching logic and Inner Product experiments.

@@ -1,0 +1,50 @@
+[
+  {
+    "algorithm": "BinSketch",
+    "metric": "inner_product",
+    "sketch_time": 0.0004801750183105469,
+    "test_time": 0.0037584304809570312,
+    "mse": 0.55,
+    "mae": 0.45,
+    "max_error": 2.0,
+    "relative_error": 1500000000.3,
+    "compression_ratio": 2.0,
+    "matrix_rows": 50,
+    "matrix_cols": 50,
+    "sketch_size": 25,
+    "config_name": "Small Sparse Matrix",
+    "density": 0.1
+  },
+  {
+    "algorithm": "BinSketch",
+    "metric": "inner_product",
+    "sketch_time": 0.0003948211669921875,
+    "test_time": 0.006278276443481445,
+    "mse": 0.7666666666666667,
+    "mae": 0.5666666666666667,
+    "max_error": 2.0,
+    "relative_error": 1666666666.9333334,
+    "compression_ratio": 2.0,
+    "matrix_rows": 100,
+    "matrix_cols": 100,
+    "sketch_size": 50,
+    "config_name": "Medium Sparse Matrix",
+    "density": 0.1
+  },
+  {
+    "algorithm": "BinSketch",
+    "metric": "inner_product",
+    "sketch_time": 0.0004150867462158203,
+    "test_time": 0.0048828125,
+    "mse": 23.733333333333334,
+    "mae": 4.066666666666666,
+    "max_error": 11.0,
+    "relative_error": 0.4331758038563691,
+    "compression_ratio": 2.0,
+    "matrix_rows": 100,
+    "matrix_cols": 100,
+    "sketch_size": 50,
+    "config_name": "Dense Matrix",
+    "density": 0.3
+  }
+]
