@@ -13,10 +13,29 @@ class SimHash(SketchModel):
             X: Input sparse matrix (n_samples, n_features).
             k: Target dimension for the sketch.
         """
-        raise NotImplementedError("Mapping method not implemented yet.")
+        _, n = X.shape
+        R = np.random.RandomState(seed=self.seed).randn(n, k)
+        predictions = X@R
+        sketch = (predictions >= 0).astype(X.dtype)
+        return csr_matrix(sketch)
     
+    def estimate_hamming_distance(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
+        """
+        Estimates Hamming distance.
+        """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Hamming distance estimation.")
+        diff = sketch1 - sketch2
+        return float(np.abs(diff.data).sum())
+
     def estimate_cosine_similarity(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
         """
         Estimates Cosine similarity.
         """
-        raise NotImplementedError("Cosine similarity estimation not implemented yet.")
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Cosine similarity estimation.")
+        _, n = sketch1.shape
+        Bin_Ham_est = self.estimate_hamming_distance(sketch1, sketch2)
+        prob = 1 - (Bin_Ham_est / n)
+        Bin_Cosine_est = np.cos(np.pi * prob)
+        return float(Bin_Cosine_est)

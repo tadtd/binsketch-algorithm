@@ -45,6 +45,8 @@ class BinSketch(SketchModel):
         """
         Estimates inner product.
         """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Inner Product estimation.")
         _, n = sketch1.shape
         spar_est_1 = self._estimate_sparsity(sketch1)
         spar_est_2 = self._estimate_sparsity(sketch2)
@@ -56,27 +58,40 @@ class BinSketch(SketchModel):
                 Bin_IP_est = IP
         else:
             Bin_IP_est = IP
-        return Bin_IP_est
+        return float(Bin_IP_est)
     
     def estimate_hamming_distance(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
         """
         Estimates Hamming distance.
         """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Hamming distance estimation.")
         spar_est_1 = self._estimate_sparsity(sketch1)
         spar_est_2 = self._estimate_sparsity(sketch2)
         est_ip = self.estimate_inner_product(sketch1, sketch2)
         Bin_Ham_est = spar_est_1 + spar_est_2 - 2*est_ip
-        return Bin_Ham_est
+        return float(Bin_Ham_est)
     
     def estimate_jaccard_similarity(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
         """
         Estimates Jaccard similarity.
         """
-        raise NotImplementedError("Jaccard similarity estimation not implemented yet.")
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
+        Bin_IP_est = self.estimate_inner_product(sketch1, sketch2)
+        Bin_Ham_est = self.estimate_hamming_distance(sketch1, sketch2)
+        Jaccard_est = Bin_IP_est / (Bin_Ham_est + Bin_IP_est)
+        return float(Jaccard_est)
     
     def estimate_cosine_similarity(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
         """
         Estimates Cosine similarity.
         """
-        raise NotImplementedError("Cosine similarity estimation not implemented yet.")
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Cosine similarity estimation.")
+        spar_est_1 = self._estimate_sparsity(sketch1)
+        spar_est_2 = self._estimate_sparsity(sketch2)
+        est_ip = self.estimate_inner_product(sketch1, sketch2)
+        Cosine_est = est_ip / (np.sqrt(spar_est_1) * np.sqrt(spar_est_2))
+        return float(Cosine_est)
     

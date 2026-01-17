@@ -59,6 +59,8 @@ class MinHash(SketchModel):
         Returns:
             Estimated Jaccard similarity (between 0 and 1).
         """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
         # Convert to dense arrays for comparison
         sig1 = sketch1.toarray().ravel()
         sig2 = sketch2.toarray().ravel()

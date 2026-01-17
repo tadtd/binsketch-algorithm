@@ -32,12 +32,16 @@ class BinarySchemaCompression(SketchModel):
         """
         Estimates inner product.
         """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Inner Product estimation.")
         return float(sketch1.multiply(sketch2).sum())
 
     def estimate_hamming_distance(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
         """
         Estimates Hamming distance.
         """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Hamming distance estimation.")
         diff = sketch1 - sketch2
         return float(np.abs(diff.data).sum())
 
@@ -46,6 +50,8 @@ class BinarySchemaCompression(SketchModel):
         Estimates Jaccard similarity: Intersection / Union
         Union = Hamming + Intersection
         """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
         est_ip = self.estimate_inner_product(sketch1, sketch2)
         est_hamming = self.estimate_hamming_distance(sketch1, sketch2)
         
