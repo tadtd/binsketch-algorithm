@@ -36,6 +36,6 @@ class SimHash(SketchModel):
             raise ValueError("Sketches must have the same shape for Cosine similarity estimation.")
         _, n = sketch1.shape
         Bin_Ham_est = self.estimate_hamming_distance(sketch1, sketch2)
-        prob = 1 - (Bin_Ham_est / n)
-        Bin_Cosine_est = np.cos(np.pi * prob)
+        ratio = Bin_Ham_est / n
+        Bin_Cosine_est = np.cos(np.pi * ratio)
         return float(Bin_Cosine_est)
