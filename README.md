@@ -2,7 +2,7 @@
 
 High-performance Python implementation of **BinSketch** and other binary sketching algorithms for efficient similarity estimation on high-dimensional binary data.
 
-## 🚀 Features
+## Features
 
 *   **Algorithms**: BinSketch, Binary Compressed Sensing (BCS), MinHash, SimHash.
 *   **Performance**:
@@ -14,7 +14,7 @@ High-performance Python implementation of **BinSketch** and other binary sketchi
     *   **Jaccard Similarity** (MinHash, BinSketch)
     *   **Hamming Distance** (SimHash, BinSketch)
 
-## 📦 Installation
+## Installation
 
 1.  **Clone the repository**:
     ```bash
@@ -29,7 +29,7 @@ High-performance Python implementation of **BinSketch** and other binary sketchi
     ```
     *(Optional: dedicated environment recommended)*
 
-## 🛠 Usage
+## Usage
 
 The main entry point is `test_pipeline.py`. It provides a flexible CLI to test and compare different algorithms and metrics.
 
@@ -76,7 +76,7 @@ python test_pipeline.py --algo BinSketch --metric inner_product cosine jaccard h
 **3. Run on specific dataset sizes:**
 By default, the pipeline runs a suite of tests ranging from Tiny (100x100) to Very Large (500x1,000,000). You can modify the `test_configs` in `test_pipeline.py` to customize this.
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 binsketch-algorithm/
@@ -93,7 +93,7 @@ binsketch-algorithm/
 └── README.md                # This file
 ```
 
-## 📝 Algorithm Details
+## Algorithm Details
 
 | Algorithm | Best For | Implementation Notes |
 | :--- | :--- | :--- |
