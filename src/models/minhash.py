@@ -5,8 +5,11 @@ from scipy.sparse import csr_matrix
 class MinHash(SketchModel):
     def __init__(self, seed: int = 42):
         super().__init__(seed=seed)
+        self.BIG_PRIME = 2147483647 # Mersenne Prime 2^31 - 1, safe for int32
+        self.coeffs = None
+        self.k = None
 
-    def mapping(self, X: csr_matrix, k: int) -> csr_matrix:
+    def mapping(self, X: csr_matrix, k: int) -> np.ndarray:
         """
         Projects high-dimensional binary data into a lower-dimensional MinHash sketch.
         Args:
@@ -16,41 +19,53 @@ class MinHash(SketchModel):
             Sketch matrix where each row contains k MinHash signatures.
         """
         n_samples, n_features = X.shape
-        rng = np.random.RandomState(seed=self.seed)
         
-        # Generate k different hash permutations
+        # Initialize hashing coefficients if new k or first run
+        if self.coeffs is None or self.k != k:
+            self.k = k
+            rng = np.random.RandomState(self.seed)
+            # Generate k pairs of coefficients (a, b)
+            # a should be odd/nonzero to be coprime with powers of 2 (conceptually)
+            # basically just random integers
+            self.coeffs = rng.randint(1, self.BIG_PRIME, size=(k, 2)).astype(np.int64)
+
         sketches = []
-        for i in range(n_samples):
-            row = X.getrow(i)
-            nonzero_indices = row.nonzero()[1]
-            
-            if len(nonzero_indices) == 0:
-                # If the row is empty, sketch is all zeros
-                sketch_row = np.zeros(k, dtype=X.dtype)
-            else:
-                sketch_row = np.zeros(k, dtype=np.int32)
-                # For each hash function
-                for j in range(k):
-                    # Create a permutation based on seed + j
-                    perm_rng = np.random.RandomState(seed=self.seed + j)
-                    permutation = perm_rng.permutation(n_features)
-                    
-                    # Find the minimum hash value among nonzero positions
-                    min_hash = n_features
-                    for idx in nonzero_indices:
-                        hash_val = np.where(permutation == idx)[0][0]
-                        if hash_val < min_hash:
-                            min_hash = hash_val
-                    
-                    sketch_row[j] = min_hash
-            
-            sketches.append(sketch_row)
         
-        # Convert to sparse matrix
-        sketch_matrix = csr_matrix(np.array(sketches), dtype=X.dtype)
-        return sketch_matrix
+        # Vectorized hashing for MinHash
+        # We need to compute h(x) = (a*x + b) % PRIME for all non-zero x
+        # And find the min value for each of the k hash functions.
+        
+        for i in range(n_samples):
+            # Get indices of non-zero elements (the "Set")
+            row = X.getrow(i)
+            indices = row.indices # raw indices array
+            
+            if indices.size == 0:
+                # Empty set -> max hash value or 0 marker
+                sketches.append(np.zeros(k, dtype=int))
+                continue
+            
+            # Broadcast indices against coefficients
+            # Coeffs: (k, 2)
+            # Indices: (N,)
+            # We want (k, N) matrix of hash values
+            
+            # a * x + b
+            # Use broadcasting: (k, 1) * (1, N) + (k, 1)
+            a = self.coeffs[:, 0].reshape(-1, 1)
+            b = self.coeffs[:, 1].reshape(-1, 1)
+            
+            # Compute hash values for all indices across all k functions
+            # distinct_hashes: shape (k, len(indices))
+            distinct_hashes = (a * indices + b) % self.BIG_PRIME
+            
+            # Find min hash for each function (min along axis 1)
+            min_hashes = np.min(distinct_hashes, axis=1)
+            sketches.append(min_hashes)
+        
+        return np.array(sketches, dtype=int)
     
-    def estimate_jaccard_similarity(self, sketch1: csr_matrix, sketch2: csr_matrix) -> float:
+    def estimate_jaccard_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
         Estimates Jaccard similarity between two MinHash sketches.
         Args:
@@ -61,14 +76,16 @@ class MinHash(SketchModel):
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
-        # Convert to dense arrays for comparison
-        sig1 = sketch1.toarray().ravel()
-        sig2 = sketch2.toarray().ravel()
         
         # Count how many hash values match
+        # sketch1 and sketch2 are now 1D or 2D arrays. Assuming 1D inputs for similarity usually
+        # but code handled .ravel() earlier. 
+        sig1 = sketch1.ravel()
+        sig2 = sketch2.ravel()
+        
         matches = np.sum(sig1 == sig2)
         
         # Jaccard similarity estimate is the fraction of matching signatures
         jaccard_sim = matches / len(sig1)
         
-        return jaccard_sim
+        return float(jaccard_sim)
