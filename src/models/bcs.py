@@ -2,7 +2,7 @@ from .base import SketchModel
 import numpy as np
 from scipy.sparse import csr_matrix, coo_matrix
 
-class BinarySchemaCompression(SketchModel):
+class BinaryCompressionSchema(SketchModel):
     def __init__(self, seed: int = 42):
         super().__init__(seed=seed)
         self.P = None

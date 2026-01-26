@@ -1,15 +1,25 @@
 import numpy as np
 from scipy.sparse import csr_matrix
+from typing import Union
 
-def mse(v1: csr_matrix, v2: csr_matrix) -> float:
+def _to_array(v: Union[np.ndarray, csr_matrix]) -> np.ndarray:
+    """Convert input to numpy array if needed."""
+    if isinstance(v, np.ndarray):
+        return v
+    return v.toarray()
+
+def mse(v1: Union[np.ndarray, csr_matrix], v2: Union[np.ndarray, csr_matrix]) -> float:
     """Compute the Mean Squared Error between two vectors."""
-    if v1.shape != v2.shape:
+    a1 = _to_array(v1)
+    a2 = _to_array(v2)
+    
+    if a1.shape != a2.shape:
         raise ValueError("Vectors must be of the same length")
     
-    return float(np.mean((v1 - v2) ** 2))
+    return float(np.mean((a1 - a2) ** 2))
 
 
-def minus_log_mse(v1: csr_matrix, v2: csr_matrix) -> float:
+def minus_log_mse(v1: Union[np.ndarray, csr_matrix], v2: Union[np.ndarray, csr_matrix]) -> float:
     """Compute the Negative Log Mean Squared Error between two vectors."""
     mse_value = mse(v1, v2)
     if mse_value == 0:
