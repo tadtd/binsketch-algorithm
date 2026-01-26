@@ -16,18 +16,18 @@ High-performance Python implementation of **BinSketch** and other binary sketchi
 
 ## Installation
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/tadtd/binsketch-algorithm
-    cd binsketch-algorithm
-    ```
+1.  **Create a virtual environment**:
+```bash
+python -m venv venv
+source venv/bin/activate # On Windows: venv\Scripts\activate
+```
 
 2.  **Install dependencies**:
-    This project relies on `numpy` and `scipy`.
-    ```bash
-    pip install numpy scipy
-    ```
-    *(Optional: dedicated environment recommended)*
+```bash
+pip install -r requirements.txt
+# or 
+pip install -r pyproject.toml
+```
 
 ## Usage
 
