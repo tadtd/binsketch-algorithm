@@ -15,7 +15,7 @@ from src import (
     mse, minus_log_mse
 )
 from src.gpu_utils import GPUConfig
-from save_ground_truth import calculate_ground_truth
+from save_ground_truth import calculate_ground_truth, load_ground_truth, save_ground_truth_to_file
 
 
 # Algorithm mapping
@@ -82,6 +82,11 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     parser.add_argument(
+        '--ground_truth_path', type=str, default=None,
+        help='Path to load/save ground truth JSON file (default: auto-generated based on dataset and similarity metric)'
+    )
+    
+    parser.add_argument(
         '--seed', type=int, default=42,
         help='Random seed for reproducibility'
     )
@@ -145,7 +150,7 @@ def get_estimator(model, algo_name: str, similarity_score: str) -> Callable:
             )
     elif similarity_score == 'inner_product':
         if hasattr(model, 'estimate_inner_product'):
-            return model.estimate_innerproduct
+            return model.estimate_inner_product
         else:
             raise AttributeError(
                 f"Model {algo_name} does not have 'estimate_inner_product' method. "
@@ -347,7 +352,8 @@ def run_experiment(
     eval_metric: str,
     compression_lengths: List[int],
     output_dir: str,
-    seed: int = 42
+    seed: int = 42,
+    ground_truth_path: Optional[str] = None
 ) -> None:
     """
     Run the complete experiment pipeline.
@@ -368,14 +374,37 @@ def run_experiment(
     # Extract dataset name from path
     dataset_name = Path(data_path).stem.replace('_binary', '')
     
-    # Calculate ground truth
-    ground_truth, pair_indices = calculate_ground_truth(X_dense, similarity_score)
+    # Determine ground truth file path
+    if ground_truth_path is not None:
+        ground_truth_file = Path(ground_truth_path)
+    else:
+        ground_truth_file = Path(output_dir) / f"ground_truth_{dataset_name}_{similarity_score}.json"
+    
+    # Try to load ground truth from file, otherwise calculate and save
+    
+    if ground_truth_file.exists():
+        gt_data = load_ground_truth(str(ground_truth_file))
+        ground_truth = gt_data['ground_truth']
+        pair_indices = gt_data['pairs']
+        print(f"Loaded {len(ground_truth)} ground truth pairs")
+    else:
+        print(f"Calculating ground truth (this may take a while)...")
+        ground_truth, pair_indices = calculate_ground_truth(X_dense, similarity_score)
+        print(f"Saving ground truth to {ground_truth_file}...")
+        save_ground_truth_to_file(data_path, similarity_score, ground_truth, pair_indices, str(ground_truth_file))
+        print(f"Saved {len(ground_truth)} ground truth pairs")
     
     # Run experiments for each threshold
     for threshold in thresholds:
         print(f"\n{'='*40}")
         print(f"Processing Threshold {threshold}")
         print(f"{'='*40}")
+        
+        pairs_above_threshold = np.sum(ground_truth > threshold)
+        print(f"  Pairs with similarity > {threshold}: {pairs_above_threshold} out of {len(ground_truth)}")
+        if pairs_above_threshold > 0:
+            print(f"  Max similarity in data: {np.max(ground_truth):.6f}")
+            print(f"  Sample values > {threshold}: {ground_truth[ground_truth > threshold][:5]}")
         
         # Filter pairs by threshold
         gt_filtered, pairs_filtered = filter_pairs_by_threshold(
@@ -453,7 +482,8 @@ def main():
         eval_metric=args.eval_metric,
         compression_lengths=compression_lengths,
         output_dir=args.output_dir,
-        seed=args.seed
+        seed=args.seed,
+        ground_truth_path=args.ground_truth_path
     )
 
 

@@ -100,7 +100,16 @@ def to_gpu(arr):
     if isinstance(arr, np.ndarray):
         return cp.asarray(arr)
     elif isinstance(arr, (csr_matrix, csc_matrix)):
-        return gpu_csr_matrix(arr) if isinstance(arr, csr_matrix) else gpu_csc_matrix(arr)
+        # Transfer sparse matrix to GPU and ensure data is float32
+        gpu_sparse = gpu_csr_matrix(arr) if isinstance(arr, csr_matrix) else gpu_csc_matrix(arr)
+        # Convert data array to float32 if it's not already a supported dtype
+        if gpu_sparse.data.dtype not in [cp.bool_, cp.float32, cp.float64, cp.complex64, cp.complex128]:
+            # Create new sparse matrix with float32 data
+            if isinstance(arr, csr_matrix):
+                gpu_sparse = gpu_csr_matrix((gpu_sparse.data.astype(cp.float32), gpu_sparse.indices, gpu_sparse.indptr), shape=gpu_sparse.shape)
+            else:
+                gpu_sparse = gpu_csc_matrix((gpu_sparse.data.astype(cp.float32), gpu_sparse.indices, gpu_sparse.indptr), shape=gpu_sparse.shape)
+        return gpu_sparse
     elif GPU_AVAILABLE and isinstance(arr, (cp.ndarray, gpu_csr_matrix, gpu_csc_matrix)):
         return arr  # Already on GPU
     else:

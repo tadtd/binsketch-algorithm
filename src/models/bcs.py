@@ -32,11 +32,9 @@ class BinaryCompressionSchema(SketchModel):
                 rng = create_random_state(self.seed, use_gpu)
                 xp = get_array_module()
                 
-                buckets = rng.randint(0, k, size=n_features)
-                # Indices can be int for sparse matrix, but data must be float on GPU
-                row_indices = arange(n_features, use_gpu=use_gpu)
-                col_indices = buckets
-                # Use float32 for data on GPU (required), int on CPU
+                buckets = rng.randint(0, k, size=n_features).astype(xp.int32)
+                row_indices = arange(n_features, use_gpu=use_gpu, dtype=xp.int32)
+                col_indices = buckets.astype(xp.int32)
                 data = ones(n_features, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu)
                 
                 sparse_module = get_sparse_module()

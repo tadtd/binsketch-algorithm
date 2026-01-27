@@ -46,15 +46,13 @@ class BinSketch(SketchModel):
                 rng = create_random_state(self.seed, use_gpu)
                 xp = get_array_module()
                 
-                tile_part = xp.tile(xp.arange(k), full_reps)
-                remainder_part = rng.choice(k, remainder, replace=False)
+                tile_part = xp.tile(xp.arange(k, dtype=xp.int32), full_reps)
+                remainder_part = rng.choice(k, remainder, replace=False).astype(xp.int32)
                 buckets = concatenate([tile_part, remainder_part], use_gpu=use_gpu)
                 rng.shuffle(buckets)
                 
-                # Indices can be int for sparse matrix, but data must be float32 on GPU
-                row_indices = arange(n, use_gpu=use_gpu)
-                col_indices = buckets
-                # Use float32 for data on GPU (required by CuPy), bool on CPU
+                row_indices = arange(n, use_gpu=use_gpu, dtype=xp.int32)
+                col_indices = buckets.astype(xp.int32)
                 data = ones(n, dtype=xp.float32 if use_gpu else bool, use_gpu=use_gpu)
                 
                 # Create sparse matrix on appropriate device
