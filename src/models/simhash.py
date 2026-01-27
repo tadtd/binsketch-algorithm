@@ -26,13 +26,31 @@ class SimHash(SketchModel):
             X = to_gpu(X)
         
         # Cache random projection matrix R
-        if self.R is None or self.R.shape != (n, k):
-            rng = create_random_state(self.seed, use_gpu)
-            xp = get_array_module()
-            # Use float32/float64 which are supported on GPU
-            self.R = rng.randn(n, k).astype(xp.float32 if use_gpu else np.float64)
+        try:
+            if self.R is None or self.R.shape != (n, k):
+                rng = create_random_state(self.seed, use_gpu)
+                xp = get_array_module()
+                # Use float32 which is supported on GPU, float64 on CPU
+                if use_gpu:
+                    self.R = rng.randn(n, k).astype(xp.float32)
+                else:
+                    self.R = rng.randn(n, k).astype(np.float64)
+        except Exception as e:
+            print(f"Error creating SimHash projection matrix R:")
+            print(f"  use_gpu: {use_gpu}")
+            print(f"  n: {n}, k: {k}")
+            print(f"  Exception: {e}")
+            raise
             
-        predictions = X.dot(self.R)
+        try:
+            predictions = X.dot(self.R)
+        except Exception as e:
+            print(f"Error in SimHash X.dot(R):")
+            print(f"  use_gpu: {use_gpu}")
+            print(f"  X shape: {X.shape}, dtype: {X.dtype}")
+            print(f"  R shape: {self.R.shape}, dtype: {self.R.dtype}")
+            print(f"  Exception: {e}")
+            raise
         xp = get_array_module(predictions if hasattr(predictions, 'shape') else predictions.toarray())
         
         # Handle sparse result

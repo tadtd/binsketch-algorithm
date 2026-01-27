@@ -15,6 +15,7 @@ from src import (
     mse, minus_log_mse
 )
 from src.gpu_utils import GPUConfig
+from save_ground_truth import calculate_ground_truth
 
 
 # Algorithm mapping
@@ -107,95 +108,6 @@ def load_data(data_path: str) -> Tuple[np.ndarray, csr_matrix]:
     print(f"  Matrix Shape: {X_dense.shape}")
     
     return X_dense, X_csr
-
-
-def calculate_ground_truth(
-    X_dense: np.ndarray,
-    similarity_score: str
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Calculate ground truth similarities for all pairs.
-    
-    Args:
-        X_dense: Dense binary matrix (n_samples, n_features)
-        similarity_score: Similarity metric ('cosine_similarity' or 'jaccard_similarity')
-        
-    Returns:
-        Tuple of (ground_truth_values, pair_indices)
-    """
-    from src.gpu_utils import GPUConfig, to_gpu, to_cpu, get_array_module
-    
-    n_samples = X_dense.shape[0]
-    pairs = list(combinations(range(n_samples), 2))
-    n_pairs = len(pairs)
-    
-    print(f"Calculating Ground Truth ({similarity_score}) for {n_pairs} pairs...")
-    
-    use_gpu = GPUConfig.is_enabled()
-    
-    # For large datasets with GPU, use vectorized computation
-    if use_gpu and n_pairs > 100:
-        print(f"  Using GPU-accelerated batch computation...")
-        X_gpu = to_gpu(X_dense)
-        xp = get_array_module(X_gpu)
-        
-        # Compute in batches to avoid memory issues
-        batch_size = min(10000, n_pairs)
-        ground_truth = []
-        
-        for batch_start in tqdm(range(0, n_pairs, batch_size), desc="Computing ground truth", unit="batch"):
-            batch_end = min(batch_start + batch_size, n_pairs)
-            batch_pairs = pairs[batch_start:batch_end]
-            
-            # Extract pairs as arrays
-            indices_i = xp.array([p[0] for p in batch_pairs])
-            indices_j = xp.array([p[1] for p in batch_pairs])
-            
-            # Get vectors for all pairs in batch
-            vecs_i = X_gpu[indices_i]  # (batch_size, n_features)
-            vecs_j = X_gpu[indices_j]  # (batch_size, n_features)
-            
-            if similarity_score == 'cosine_similarity':
-                # Vectorized cosine similarity
-                dot_products = xp.sum(vecs_i * vecs_j, axis=1)
-                norms_i = xp.sqrt(xp.sum(vecs_i * vecs_i, axis=1))
-                norms_j = xp.sqrt(xp.sum(vecs_j * vecs_j, axis=1))
-                # Avoid division by zero
-                denominators = norms_i * norms_j
-                batch_sims = xp.where(denominators > 0, dot_products / denominators, 0.0)
-            elif similarity_score == 'inner_product':
-                # Vectorized inner product
-                batch_sims = xp.sum(vecs_i * vecs_j, axis=1)
-            elif similarity_score == 'jaccard_similarity':
-                # Vectorized Jaccard similarity
-                intersection = xp.sum(xp.minimum(vecs_i, vecs_j), axis=1)
-                union = xp.sum(xp.maximum(vecs_i, vecs_j), axis=1)
-                batch_sims = xp.where(union > 0, intersection / union, 0.0)
-            else:
-                raise ValueError(f"Unknown similarity score: {similarity_score}")
-            
-            # Transfer batch to CPU and extend results
-            ground_truth.extend(to_cpu(batch_sims).tolist())
-        
-        return np.array(ground_truth), np.array(pairs)
-    
-    # CPU fallback or small datasets
-    else:
-        if use_gpu:
-            print(f"  Using CPU (dataset too small for GPU batch optimization)...")
-        ground_truth = []
-        for i, j in tqdm(pairs, desc="Computing ground truth", unit="pair"):
-            if similarity_score == 'cosine_similarity':
-                val = cosine_similarity(X_dense[i], X_dense[j])
-            elif similarity_score == 'inner_product':
-                val = inner_product(X_dense[i], X_dense[j])
-            elif similarity_score == 'jaccard_similarity':
-                val = jaccard_similarity(X_dense[i], X_dense[j])
-            else:
-                raise ValueError(f"Unknown similarity score: {similarity_score}")
-            ground_truth.append(val)
-        
-        return np.array(ground_truth), np.array(pairs)
 
 
 def get_estimator(model, algo_name: str, similarity_score: str) -> Callable:

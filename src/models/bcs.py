@@ -27,20 +27,42 @@ class BinaryCompressionSchema(SketchModel):
             X = to_gpu(X)
         
         # Cache projection matrix P if not exists or dimensions changed
-        if not hasattr(self, 'P') or self.P is None or self.P.shape != (n_features, k):
-            rng = create_random_state(self.seed, use_gpu)
-            xp = get_array_module()
-            
-            buckets = rng.randint(0, k, size=n_features)
-            row_indices = arange(n_features, use_gpu=use_gpu)
-            col_indices = buckets
-            # Use float32 for GPU compatibility instead of int
-            data = ones(n_features, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu)
-            
-            sparse_module = get_sparse_module()
-            self.P = sparse_module.coo_matrix((data, (row_indices, col_indices)), shape=(n_features, k))
+        try:
+            if not hasattr(self, 'P') or self.P is None or self.P.shape != (n_features, k):
+                rng = create_random_state(self.seed, use_gpu)
+                xp = get_array_module()
+                
+                buckets = rng.randint(0, k, size=n_features)
+                # Indices can be int for sparse matrix, but data must be float on GPU
+                row_indices = arange(n_features, use_gpu=use_gpu)
+                col_indices = buckets
+                # Use float32 for data on GPU (required), int on CPU
+                data = ones(n_features, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu)
+                
+                sparse_module = get_sparse_module()
+                self.P = sparse_module.coo_matrix((data, (row_indices, col_indices)), shape=(n_features, k))
+        except Exception as e:
+            print(f"Error creating BCS projection matrix P:")
+            print(f"  use_gpu: {use_gpu}")
+            print(f"  n_features: {n_features}, k: {k}")
+            if 'row_indices' in locals():
+                print(f"  row_indices dtype: {row_indices.dtype}")
+            if 'col_indices' in locals():
+                print(f"  col_indices dtype: {col_indices.dtype}")
+            if 'data' in locals():
+                print(f"  data dtype: {data.dtype}")
+            print(f"  Exception: {e}")
+            raise
 
-        X_sketch = X.dot(self.P)
+        try:
+            X_sketch = X.dot(self.P)
+        except Exception as e:
+            print(f"Error in BCS X.dot(P):")
+            print(f"  use_gpu: {use_gpu}")
+            print(f"  X shape: {X.shape}, dtype: {X.dtype}")
+            print(f"  P shape: {self.P.shape}, dtype: {self.P.dtype}")
+            print(f"  Exception: {e}")
+            raise
         
         # Convert to dense and modulo 2
         X_sketch_dense = X_sketch.toarray()

@@ -176,10 +176,16 @@ def concatenate(arrays, axis=0, use_gpu=None):
     return xp.concatenate(arrays, axis=axis)
 
 
-def arange(*args, use_gpu=None):
+def arange(*args, use_gpu=None, dtype=None):
     """Create arange array on CPU or GPU."""
     if use_gpu is None:
         use_gpu = GPUConfig.is_enabled()
     
     xp = cp if (use_gpu and GPU_AVAILABLE) else np
-    return xp.arange(*args)
+    result = xp.arange(*args)
+    
+    # Apply dtype if specified
+    if dtype is not None:
+        result = result.astype(dtype)
+    
+    return result

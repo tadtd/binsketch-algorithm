@@ -54,23 +54,35 @@ class MinHash(SketchModel):
                 sketches.append(zeros(k, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu))
                 continue
             
-            # Broadcast indices against coefficients
-            # Coeffs: (k, 2)
-            # Indices: (N,)
-            # We want (k, N) matrix of hash values
-            
-            # a * x + b
-            # Use broadcasting: (k, 1) * (1, N) + (k, 1)
-            a = self.coeffs[:, 0].reshape(-1, 1)
-            b = self.coeffs[:, 1].reshape(-1, 1)
-            
-            # Compute hash values for all indices across all k functions
-            # distinct_hashes: shape (k, len(indices))
-            distinct_hashes = (a * indices + b) % self.BIG_PRIME
-            
-            # Find min hash for each function (min along axis 1)
-            min_hashes = xp.min(distinct_hashes, axis=1)
-            sketches.append(min_hashes)
+            try:
+                if use_gpu:
+                    # Convert indices to float64 for GPU compatibility
+                    indices = xp.asarray(indices, dtype=xp.float64)
+                
+                # Broadcast indices against coefficients
+                # Coeffs: (k, 2)
+                # Indices: (N,)
+                # We want (k, N) matrix of hash values
+                
+                # a * x + b
+                # Use broadcasting: (k, 1) * (1, N) + (k, 1)
+                a = self.coeffs[:, 0].reshape(-1, 1)
+                b = self.coeffs[:, 1].reshape(-1, 1)
+                
+                # Compute hash values for all indices across all k functions
+                # distinct_hashes: shape (k, len(indices))
+                distinct_hashes = (a * indices + b) % self.BIG_PRIME
+                
+                # Find min hash for each function (min along axis 1)
+                min_hashes = xp.min(distinct_hashes, axis=1)
+                sketches.append(min_hashes)
+            except Exception as e:
+                print(f"Error processing sample {i}:")
+                print(f"  use_gpu: {use_gpu}")
+                print(f"  indices shape: {indices.shape}, dtype: {indices.dtype}")
+                print(f"  coeffs shape: {self.coeffs.shape}, dtype: {self.coeffs.dtype}")
+                print(f"  Exception: {e}")
+                raise
         
         result = xp.array(sketches)
         result = to_cpu(result)
