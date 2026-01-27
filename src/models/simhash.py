@@ -28,7 +28,9 @@ class SimHash(SketchModel):
         # Cache random projection matrix R
         if self.R is None or self.R.shape != (n, k):
             rng = create_random_state(self.seed, use_gpu)
-            self.R = rng.randn(n, k)
+            xp = get_array_module()
+            # Use float32/float64 which are supported on GPU
+            self.R = rng.randn(n, k).astype(xp.float32 if use_gpu else np.float64)
             
         predictions = X.dot(self.R)
         xp = get_array_module(predictions if hasattr(predictions, 'shape') else predictions.toarray())

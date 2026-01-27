@@ -34,7 +34,8 @@ class BinaryCompressionSchema(SketchModel):
             buckets = rng.randint(0, k, size=n_features)
             row_indices = arange(n_features, use_gpu=use_gpu)
             col_indices = buckets
-            data = ones(n_features, dtype=int, use_gpu=use_gpu)
+            # Use float32 for GPU compatibility instead of int
+            data = ones(n_features, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu)
             
             sparse_module = get_sparse_module()
             self.P = sparse_module.coo_matrix((data, (row_indices, col_indices)), shape=(n_features, k))

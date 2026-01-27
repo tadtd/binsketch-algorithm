@@ -52,7 +52,8 @@ class BinSketch(SketchModel):
             
             row_indices = arange(n, use_gpu=use_gpu)
             col_indices = buckets
-            data = ones(n, dtype=bool, use_gpu=use_gpu)
+            # Use float32 for GPU compatibility instead of bool
+            data = ones(n, dtype=xp.float32 if use_gpu else bool, use_gpu=use_gpu)
             
             # Create sparse matrix on appropriate device
             sparse_module = get_sparse_module()

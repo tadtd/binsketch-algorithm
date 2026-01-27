@@ -50,7 +50,8 @@ class MinHash(SketchModel):
             
             if indices.size == 0:
                 # Empty set -> max hash value or 0 marker
-                sketches.append(zeros(k, dtype=int, use_gpu=use_gpu))
+                # Use float32 for GPU compatibility
+                sketches.append(zeros(k, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu))
                 continue
             
             # Broadcast indices against coefficients
