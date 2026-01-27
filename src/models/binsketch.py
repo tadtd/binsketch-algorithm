@@ -63,10 +63,19 @@ class BinSketch(SketchModel):
         # Convert to dense array and apply threshold (>0 -> 1)
         X_sketch_dense = X_sketch.toarray()
         xp = get_array_module(X_sketch_dense)
-        X_sketch_binary = xp.where(X_sketch_dense > 0, 1, 0).astype(xp.int8)
+        
+        # Use float32 for GPU compatibility, then convert to int on CPU
+        if use_gpu:
+            X_sketch_binary = xp.where(X_sketch_dense > 0, 1.0, 0.0).astype(xp.float32)
+        else:
+            X_sketch_binary = xp.where(X_sketch_dense > 0, 1, 0).astype(np.int8)
         
         # Return as numpy array (transfer from GPU if needed)
-        return to_cpu(X_sketch_binary)
+        result = to_cpu(X_sketch_binary)
+        # Convert to int8 on CPU after GPU transfer
+        if use_gpu:
+            result = result.astype(np.int8)
+        return result
     
     def estimate_inner_product(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """

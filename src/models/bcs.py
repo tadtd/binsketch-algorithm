@@ -44,9 +44,19 @@ class BinaryCompressionSchema(SketchModel):
         # Convert to dense and modulo 2
         X_sketch_dense = X_sketch.toarray()
         xp = get_array_module(X_sketch_dense)
-        X_sketch_binary = X_sketch_dense.astype(int) % 2
         
-        return to_cpu(X_sketch_binary)
+        # Use float32 for GPU compatibility
+        if use_gpu:
+            # On GPU, use float operations then modulo
+            X_sketch_binary = (X_sketch_dense.astype(xp.float32) % 2)
+        else:
+            X_sketch_binary = X_sketch_dense.astype(int) % 2
+        
+        result = to_cpu(X_sketch_binary)
+        # Convert to int on CPU after GPU transfer
+        if use_gpu:
+            result = result.astype(np.int8)
+        return result
 
     def estimate_inner_product(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """

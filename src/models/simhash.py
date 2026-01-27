@@ -37,8 +37,17 @@ class SimHash(SketchModel):
         if hasattr(predictions, 'toarray'):
             predictions = predictions.toarray()
         
-        sketch = (predictions >= 0).astype(xp.int8)
-        return to_cpu(sketch)
+        # Use float32 for GPU compatibility
+        if use_gpu:
+            sketch = (predictions >= 0).astype(xp.float32)
+        else:
+            sketch = (predictions >= 0).astype(np.int8)
+        
+        result = to_cpu(sketch)
+        # Convert to int8 on CPU after GPU transfer
+        if use_gpu:
+            result = result.astype(np.int8)
+        return result
     
     def estimate_hamming_distance(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """

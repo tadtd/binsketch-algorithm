@@ -31,9 +31,11 @@ class MinHash(SketchModel):
             self.k = k
             rng = create_random_state(self.seed, use_gpu)
             # Generate k pairs of coefficients (a, b)
-            # a should be odd/nonzero to be coprime with powers of 2 (conceptually)
-            # basically just random integers
-            self.coeffs = rng.randint(1, self.BIG_PRIME, size=(k, 2)).astype(xp.int64)
+            # Use float64 for GPU compatibility in hash computations
+            if use_gpu:
+                self.coeffs = rng.randint(1, self.BIG_PRIME, size=(k, 2)).astype(xp.float64)
+            else:
+                self.coeffs = rng.randint(1, self.BIG_PRIME, size=(k, 2)).astype(xp.int64)
 
         sketches = []
         
@@ -69,8 +71,12 @@ class MinHash(SketchModel):
             min_hashes = xp.min(distinct_hashes, axis=1)
             sketches.append(min_hashes)
         
-        result = xp.array(sketches, dtype=int)
-        return to_cpu(result)
+        result = xp.array(sketches)
+        result = to_cpu(result)
+        # Convert to int on CPU after GPU transfer
+        if use_gpu:
+            result = result.astype(np.int32)
+        return result
     
     def estimate_jaccard_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
