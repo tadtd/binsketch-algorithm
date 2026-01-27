@@ -37,49 +37,26 @@ class BinSketch(SketchModel):
             X = to_gpu(X)
         
         # Cache projection matrix P if not exists or dimensions changed
-        try:
-            if not hasattr(self, 'P') or self.P is None or self.P.shape != (n, k):
-                full_reps = n // k
-                remainder = n % k
-                
-                # Create buckets on appropriate device
-                rng = create_random_state(self.seed, use_gpu)
-                xp = get_array_module()
-                
-                tile_part = xp.tile(xp.arange(k, dtype=xp.int32), full_reps)
-                remainder_part = rng.choice(k, remainder, replace=False).astype(xp.int32)
-                buckets = concatenate([tile_part, remainder_part], use_gpu=use_gpu)
-                rng.shuffle(buckets)
-                
-                row_indices = arange(n, use_gpu=use_gpu, dtype=xp.int32)
-                col_indices = buckets.astype(xp.int32)
-                data = ones(n, dtype=xp.float32 if use_gpu else bool, use_gpu=use_gpu)
-                
-                # Create sparse matrix on appropriate device
-                sparse_module = get_sparse_module()
-                self.P = sparse_module.csc_matrix((data, (row_indices, col_indices)), shape=(n, k))
-        except Exception as e:
-            print(f"Error creating BinSketch projection matrix P:")
-            print(f"  use_gpu: {use_gpu}")
-            print(f"  n: {n}, k: {k}")
-            if 'row_indices' in locals():
-                print(f"  row_indices dtype: {row_indices.dtype}")
-            if 'col_indices' in locals():
-                print(f"  col_indices dtype: {col_indices.dtype}")
-            if 'data' in locals():
-                print(f"  data dtype: {data.dtype}")
-            print(f"  Exception: {e}")
-            raise
+        if not hasattr(self, 'P') or self.P is None or self.P.shape != (n, k):
+            full_reps = n // k
+            remainder = n % k
+            
+            rng = create_random_state(self.seed, use_gpu)
+            xp = get_array_module()
+            
+            tile_part = xp.tile(xp.arange(k, dtype=xp.int32), full_reps)
+            remainder_part = rng.choice(k, remainder, replace=False).astype(xp.int32)
+            buckets = concatenate([tile_part, remainder_part], use_gpu=use_gpu)
+            rng.shuffle(buckets)
+            
+            row_indices = arange(n, use_gpu=use_gpu, dtype=xp.int32)
+            col_indices = buckets.astype(xp.int32)
+            data = ones(n, dtype=xp.float32 if use_gpu else bool, use_gpu=use_gpu)
+            
+            sparse_module = get_sparse_module()
+            self.P = sparse_module.csc_matrix((data, (row_indices, col_indices)), shape=(n, k))
 
-        try:
-            X_sketch = X.dot(self.P)
-        except Exception as e:
-            print(f"Error in BinSketch X.dot(P):")
-            print(f"  use_gpu: {use_gpu}")
-            print(f"  X shape: {X.shape}, dtype: {X.dtype}")
-            print(f"  P shape: {self.P.shape}, dtype: {self.P.dtype}")
-            print(f"  Exception: {e}")
-            raise
+        X_sketch = X.dot(self.P)
         
         # Convert to dense array and apply threshold (>0 -> 1)
         X_sketch_dense = X_sketch.toarray()

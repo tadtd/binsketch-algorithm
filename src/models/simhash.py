@@ -25,46 +25,26 @@ class SimHash(SketchModel):
         if use_gpu:
             X = to_gpu(X)
         
-        # Cache random projection matrix R
-        try:
-            if self.R is None or self.R.shape != (n, k):
-                rng = create_random_state(self.seed, use_gpu)
-                xp = get_array_module()
-                # Use float32 which is supported on GPU, float64 on CPU
-                if use_gpu:
-                    self.R = rng.randn(n, k).astype(xp.float32)
-                else:
-                    self.R = rng.randn(n, k).astype(np.float64)
-        except Exception as e:
-            print(f"Error creating SimHash projection matrix R:")
-            print(f"  use_gpu: {use_gpu}")
-            print(f"  n: {n}, k: {k}")
-            print(f"  Exception: {e}")
-            raise
+        if self.R is None or self.R.shape != (n, k):
+            rng = create_random_state(self.seed, use_gpu)
+            xp = get_array_module()
+            if use_gpu:
+                self.R = rng.randn(n, k).astype(xp.float32)
+            else:
+                self.R = rng.randn(n, k).astype(np.float64)
             
-        try:
-            predictions = X.dot(self.R)
-        except Exception as e:
-            print(f"Error in SimHash X.dot(R):")
-            print(f"  use_gpu: {use_gpu}")
-            print(f"  X shape: {X.shape}, dtype: {X.dtype}")
-            print(f"  R shape: {self.R.shape}, dtype: {self.R.dtype}")
-            print(f"  Exception: {e}")
-            raise
+        predictions = X.dot(self.R)
         xp = get_array_module(predictions if hasattr(predictions, 'shape') else predictions.toarray())
         
-        # Handle sparse result
         if hasattr(predictions, 'toarray'):
             predictions = predictions.toarray()
         
-        # Use float32 for GPU compatibility
         if use_gpu:
             sketch = (predictions >= 0).astype(xp.float32)
         else:
             sketch = (predictions >= 0).astype(np.int8)
         
         result = to_cpu(sketch)
-        # Convert to int8 on CPU after GPU transfer
         if use_gpu:
             result = result.astype(np.int8)
         return result

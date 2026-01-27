@@ -27,54 +27,29 @@ class BinaryCompressionSchema(SketchModel):
             X = to_gpu(X)
         
         # Cache projection matrix P if not exists or dimensions changed
-        try:
-            if not hasattr(self, 'P') or self.P is None or self.P.shape != (n_features, k):
-                rng = create_random_state(self.seed, use_gpu)
-                xp = get_array_module()
-                
-                buckets = rng.randint(0, k, size=n_features).astype(xp.int32)
-                row_indices = arange(n_features, use_gpu=use_gpu, dtype=xp.int32)
-                col_indices = buckets.astype(xp.int32)
-                data = ones(n_features, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu)
-                
-                sparse_module = get_sparse_module()
-                self.P = sparse_module.coo_matrix((data, (row_indices, col_indices)), shape=(n_features, k))
-        except Exception as e:
-            print(f"Error creating BCS projection matrix P:")
-            print(f"  use_gpu: {use_gpu}")
-            print(f"  n_features: {n_features}, k: {k}")
-            if 'row_indices' in locals():
-                print(f"  row_indices dtype: {row_indices.dtype}")
-            if 'col_indices' in locals():
-                print(f"  col_indices dtype: {col_indices.dtype}")
-            if 'data' in locals():
-                print(f"  data dtype: {data.dtype}")
-            print(f"  Exception: {e}")
-            raise
+        if not hasattr(self, 'P') or self.P is None or self.P.shape != (n_features, k):
+            rng = create_random_state(self.seed, use_gpu)
+            xp = get_array_module()
+            
+            buckets = rng.randint(0, k, size=n_features).astype(xp.int32)
+            row_indices = arange(n_features, use_gpu=use_gpu, dtype=xp.int32)
+            col_indices = buckets.astype(xp.int32)
+            data = ones(n_features, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu)
+            
+            sparse_module = get_sparse_module()
+            self.P = sparse_module.coo_matrix((data, (row_indices, col_indices)), shape=(n_features, k))
 
-        try:
-            X_sketch = X.dot(self.P)
-        except Exception as e:
-            print(f"Error in BCS X.dot(P):")
-            print(f"  use_gpu: {use_gpu}")
-            print(f"  X shape: {X.shape}, dtype: {X.dtype}")
-            print(f"  P shape: {self.P.shape}, dtype: {self.P.dtype}")
-            print(f"  Exception: {e}")
-            raise
+        X_sketch = X.dot(self.P)
         
-        # Convert to dense and modulo 2
         X_sketch_dense = X_sketch.toarray()
         xp = get_array_module(X_sketch_dense)
         
-        # Use float32 for GPU compatibility
         if use_gpu:
-            # On GPU, use float operations then modulo
             X_sketch_binary = (X_sketch_dense.astype(xp.float32) % 2)
         else:
             X_sketch_binary = X_sketch_dense.astype(int) % 2
         
         result = to_cpu(X_sketch_binary)
-        # Convert to int on CPU after GPU transfer
         if use_gpu:
             result = result.astype(np.int8)
         return result
@@ -125,12 +100,6 @@ class BinaryCompressionSchema(SketchModel):
             raise ValueError("Sketches must have the same shape for Cosine similarity estimation.")
         
         est_ip = self.estimate_inner_product(sketch1, sketch2)
-        
-        # For binary vectors, L2 norm = sqrt(count_nonzero) => but BCS doesn't preserve count exactly?
-        # Actually BCS estimates IP(x, y). 
-        # So IP(x, x) = ||x||^2.
-        # Thus ||x|| = sqrt(IP(x, x))
-        
         est_sq_norm1 = self.estimate_inner_product(sketch1, sketch1)
         est_sq_norm2 = self.estimate_inner_product(sketch2, sketch2)
         

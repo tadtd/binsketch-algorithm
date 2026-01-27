@@ -100,15 +100,28 @@ def to_gpu(arr):
     if isinstance(arr, np.ndarray):
         return cp.asarray(arr)
     elif isinstance(arr, (csr_matrix, csc_matrix)):
-        # Transfer sparse matrix to GPU and ensure data is float32
-        gpu_sparse = gpu_csr_matrix(arr) if isinstance(arr, csr_matrix) else gpu_csc_matrix(arr)
-        # Convert data array to float32 if it's not already a supported dtype
-        if gpu_sparse.data.dtype not in [cp.bool_, cp.float32, cp.float64, cp.complex64, cp.complex128]:
-            # Create new sparse matrix with float32 data
+        # Check if data needs conversion BEFORE creating GPU sparse matrix
+        needs_conversion = arr.data.dtype not in [np.bool_, np.float32, np.float64, np.complex64, np.complex128]
+        
+        if needs_conversion:
+            print(f"  [GPU] Converting sparse matrix data from {arr.data.dtype} to float32")
+            # Create a CPU sparse matrix with converted dtypes first
             if isinstance(arr, csr_matrix):
-                gpu_sparse = gpu_csr_matrix((gpu_sparse.data.astype(cp.float32), gpu_sparse.indices, gpu_sparse.indptr), shape=gpu_sparse.shape)
+                arr_converted = csr_matrix(
+                    (arr.data.astype(np.float32), arr.indices.astype(np.int32), arr.indptr.astype(np.int32)),
+                    shape=arr.shape
+                )
+                gpu_sparse = gpu_csr_matrix(arr_converted)
             else:
-                gpu_sparse = gpu_csc_matrix((gpu_sparse.data.astype(cp.float32), gpu_sparse.indices, gpu_sparse.indptr), shape=gpu_sparse.shape)
+                arr_converted = csc_matrix(
+                    (arr.data.astype(np.float32), arr.indices.astype(np.int32), arr.indptr.astype(np.int32)),
+                    shape=arr.shape
+                )
+                gpu_sparse = gpu_csc_matrix(arr_converted)
+        else:
+            # Data is already compatible, transfer directly
+            gpu_sparse = gpu_csr_matrix(arr) if isinstance(arr, csr_matrix) else gpu_csc_matrix(arr)
+        
         return gpu_sparse
     elif GPU_AVAILABLE and isinstance(arr, (cp.ndarray, gpu_csr_matrix, gpu_csc_matrix)):
         return arr  # Already on GPU

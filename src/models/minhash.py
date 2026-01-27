@@ -49,44 +49,21 @@ class MinHash(SketchModel):
             indices = row.indices # raw indices array
             
             if indices.size == 0:
-                # Empty set -> max hash value or 0 marker
-                # Use float32 for GPU compatibility
                 sketches.append(zeros(k, dtype=xp.float32 if use_gpu else int, use_gpu=use_gpu))
                 continue
             
-            try:
-                if use_gpu:
-                    # Convert indices to float64 for GPU compatibility
-                    indices = xp.asarray(indices, dtype=xp.float64)
-                
-                # Broadcast indices against coefficients
-                # Coeffs: (k, 2)
-                # Indices: (N,)
-                # We want (k, N) matrix of hash values
-                
-                # a * x + b
-                # Use broadcasting: (k, 1) * (1, N) + (k, 1)
-                a = self.coeffs[:, 0].reshape(-1, 1)
-                b = self.coeffs[:, 1].reshape(-1, 1)
-                
-                # Compute hash values for all indices across all k functions
-                # distinct_hashes: shape (k, len(indices))
-                distinct_hashes = (a * indices + b) % self.BIG_PRIME
-                
-                # Find min hash for each function (min along axis 1)
-                min_hashes = xp.min(distinct_hashes, axis=1)
-                sketches.append(min_hashes)
-            except Exception as e:
-                print(f"Error processing sample {i}:")
-                print(f"  use_gpu: {use_gpu}")
-                print(f"  indices shape: {indices.shape}, dtype: {indices.dtype}")
-                print(f"  coeffs shape: {self.coeffs.shape}, dtype: {self.coeffs.dtype}")
-                print(f"  Exception: {e}")
-                raise
+            if use_gpu:
+                indices = xp.asarray(indices, dtype=xp.float64)
+            
+            a = self.coeffs[:, 0].reshape(-1, 1)
+            b = self.coeffs[:, 1].reshape(-1, 1)
+            
+            distinct_hashes = (a * indices + b) % self.BIG_PRIME
+            min_hashes = xp.min(distinct_hashes, axis=1)
+            sketches.append(min_hashes)
         
         result = xp.array(sketches)
         result = to_cpu(result)
-        # Convert to int on CPU after GPU transfer
         if use_gpu:
             result = result.astype(np.int32)
         return result
@@ -103,15 +80,10 @@ class MinHash(SketchModel):
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
         
-        # Count how many hash values match
-        # sketch1 and sketch2 are now 1D or 2D arrays. Assuming 1D inputs for similarity usually
-        # but code handled .ravel() earlier. 
         sig1 = sketch1.ravel()
         sig2 = sketch2.ravel()
         
         matches = np.sum(sig1 == sig2)
-        
-        # Jaccard similarity estimate is the fraction of matching signatures
         jaccard_sim = matches / len(sig1)
         
         return float(jaccard_sim)

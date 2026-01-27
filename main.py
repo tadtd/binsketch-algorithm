@@ -400,19 +400,12 @@ def run_experiment(
         print(f"Processing Threshold {threshold}")
         print(f"{'='*40}")
         
-        pairs_above_threshold = np.sum(ground_truth > threshold)
-        print(f"  Pairs with similarity > {threshold}: {pairs_above_threshold} out of {len(ground_truth)}")
-        if pairs_above_threshold > 0:
-            print(f"  Max similarity in data: {np.max(ground_truth):.6f}")
-            print(f"  Sample values > {threshold}: {ground_truth[ground_truth > threshold][:5]}")
-        
-        # Filter pairs by threshold
         gt_filtered, pairs_filtered = filter_pairs_by_threshold(
             ground_truth, pair_indices, threshold
         )
         
         if gt_filtered is None:
-            print(f"  [Skipping] No pairs found > {threshold}")
+            print(f"  No pairs found > {threshold}")
             continue
         
         print(f"  Valid Pairs: {len(gt_filtered)}")
