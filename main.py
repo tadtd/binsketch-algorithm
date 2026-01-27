@@ -10,8 +10,10 @@ from scipy.sparse import csr_matrix
 
 from src import (
     BinSketch, BinaryCompressionSchema, MinHash, SimHash,
-    cosine_similarity, jaccard_similarity, mse, minus_log_mse
+    cosine_similarity, jaccard_similarity, inner_product,
+    mse, minus_log_mse
 )
+from src.gpu_utils import GPUConfig
 
 
 # Algorithm mapping
@@ -50,6 +52,11 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     parser.add_argument(
+        '--use_gpu', action='store_true',
+        help='Enable GPU acceleration (requires CuPy and CUDA)'
+    )
+    
+    parser.add_argument(
         '--eval_metric', type=str, default='minus_log_mse',
         choices=['mse', 'minus_log_mse'],
         help='Evaluation metric for comparing estimates to ground truth'
@@ -57,7 +64,7 @@ def parse_arguments() -> argparse.Namespace:
     
     parser.add_argument(
         '--similarity_score', type=str, default='cosine_similarity',
-        choices=['cosine_similarity', 'jaccard_similarity'],
+        choices=['cosine_similarity', 'jaccard_similarity', 'inner_product'],
         help='Similarity metric for ground truth calculation and estimation'
     )
     
@@ -124,8 +131,12 @@ def calculate_ground_truth(
     for i, j in pairs:
         if similarity_score == 'cosine_similarity':
             val = cosine_similarity(X_dense[i], X_dense[j])
-        else:
+        elif similarity_score == 'inner_product':
+            val = inner_product(X_dense[i], X_dense[j])
+        elif similarity_score == 'jaccard_similarity':
             val = jaccard_similarity(X_dense[i], X_dense[j])
+        else:
+            raise ValueError(f"Unknown similarity score: {similarity_score}")
         ground_truth.append(val)
     
     return np.array(ground_truth), np.array(pairs)
@@ -162,6 +173,14 @@ def get_estimator(model, algo_name: str, similarity_score: str) -> Callable:
         else:
             raise AttributeError(
                 f"Model {algo_name} does not have 'estimate_jaccard_similarity' method. "
+                f"Cannot estimate jaccard similarity from sketches."
+            )
+    elif similarity_score == 'inner_product':
+        if hasattr(model, 'estimate_inner_product'):
+            return model.estimate_innerproduct
+        else:
+            raise AttributeError(
+                f"Model {algo_name} does not have 'estimate_inner_product' method. "
                 f"Cannot estimate jaccard similarity from sketches."
             )
     else:
@@ -299,7 +318,8 @@ def save_plot(
     similarity_score: str,
     eval_metric: str,
     threshold: float,
-    output_dir: str
+    output_dir: str,
+    dataset_name: str = None
 ) -> str:
     """
     Create and save accuracy plot.
@@ -311,6 +331,7 @@ def save_plot(
         eval_metric: Evaluation metric name
         threshold: Threshold value
         output_dir: Output directory
+        dataset_name: Name of the dataset (optional)
         
     Returns:
         Path to saved plot file
@@ -328,7 +349,9 @@ def save_plot(
         ylabel = "MSE"
         title_suffix = "Error"
     
-    plt.title(f"{similarity_score.replace('_', ' ').title()} {title_suffix} (Threshold={threshold})")
+    # Include dataset name in title if provided
+    dataset_prefix = f"{dataset_name.upper()} - " if dataset_name else ""
+    plt.title(f"{dataset_prefix}{similarity_score.replace('_', ' ').title()} {title_suffix} (Threshold={threshold})")
     plt.xlabel("Compression Length (N)")
     plt.ylabel(ylabel)
     plt.legend()
@@ -374,6 +397,9 @@ def run_experiment(
     # Load data
     X_dense, X_csr = load_data(data_path)
     
+    # Extract dataset name from path
+    dataset_name = Path(data_path).stem.replace('_binary', '')
+    
     # Calculate ground truth
     ground_truth, pair_indices = calculate_ground_truth(X_dense, similarity_score)
     
@@ -417,7 +443,7 @@ def run_experiment(
         # Save plot
         if results:
             filepath = save_plot(
-                compression_lengths, results, similarity_score, eval_metric, threshold, output_dir
+                compression_lengths, results, similarity_score, eval_metric, threshold, output_dir, dataset_name
             )
             print(f"  Saved: {filepath}")
         else:
@@ -427,6 +453,14 @@ def run_experiment(
 def main():
     """Main entry point."""
     args = parse_arguments()
+    
+    # Enable GPU if requested
+    if args.use_gpu:
+        success = GPUConfig.enable_gpu()
+        if not success:
+            print("Warning: GPU not available, continuing with CPU")
+    else:
+        print("Running on CPU (use --use_gpu to enable GPU acceleration)")
     
     # Validate algorithms
     invalid_algos = [a for a in args.algo if a not in ALGO_MAP]

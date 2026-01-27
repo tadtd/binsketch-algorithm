@@ -1,21 +1,26 @@
 from .base import SketchModel
 import numpy as np
 from scipy.sparse import csr_matrix, csc_matrix
+from ..gpu_utils import (
+    get_array_module, get_sparse_module, to_gpu, to_cpu,
+    create_random_state, GPUConfig, concatenate, arange, ones
+)
 
 class BinSketch(SketchModel):
     def __init__(self, seed: int = 42):
         super().__init__(seed=seed)
         self.P = None
 
-    def _estimate_sparsity(self, a: np.ndarray) -> float:
+    def _estimate_sparsity(self, a) -> float:
         """Estimates the original vector's sparsity from its sketch."""
+        xp = get_array_module(a)
         n = a.shape[-1]
-        spar_a = np.count_nonzero(a)
+        spar_a = xp.count_nonzero(a)
         if spar_a / n < 1:
-            spar_est_a = np.round(np.log(1-spar_a/n) / np.log(1-1/n))
+            spar_est_a = xp.round(xp.log(1-spar_a/n) / xp.log(1-1/n))
         else:
             spar_est_a = spar_a
-        return spar_est_a
+        return float(spar_est_a)
 
     def mapping(self, X: csr_matrix, k: int) -> np.ndarray:
         """
@@ -25,28 +30,43 @@ class BinSketch(SketchModel):
             k: Target dimension for the sketch.
         """
         _, n = X.shape
+        use_gpu = GPUConfig.is_enabled()
+        
+        # Transfer to GPU if enabled
+        if use_gpu:
+            X = to_gpu(X)
         
         # Cache projection matrix P if not exists or dimensions changed
         if not hasattr(self, 'P') or self.P is None or self.P.shape != (n, k):
             full_reps = n // k
             remainder = n % k
-            buckets = np.concatenate([
-                np.tile(np.arange(k), full_reps),       # Repeated pattern
-                np.random.RandomState(seed=self.seed).choice(k, remainder, replace=False) # Random remainder
-            ])
-            rng = np.random.RandomState(seed=self.seed)
-            rng.shuffle(buckets)
-            row_indices = np.arange(n) # Original columns 0..n-1
-            col_indices = buckets      # Assigned buckets
-            data = np.ones(n, dtype=bool) # All ones
             
-            self.P = csc_matrix((data, (row_indices, col_indices)), shape=(n, k))
+            # Create buckets on appropriate device
+            rng = create_random_state(self.seed, use_gpu)
+            xp = get_array_module()
+            
+            tile_part = xp.tile(xp.arange(k), full_reps)
+            remainder_part = rng.choice(k, remainder, replace=False)
+            buckets = concatenate([tile_part, remainder_part], use_gpu=use_gpu)
+            rng.shuffle(buckets)
+            
+            row_indices = arange(n, use_gpu=use_gpu)
+            col_indices = buckets
+            data = ones(n, dtype=bool, use_gpu=use_gpu)
+            
+            # Create sparse matrix on appropriate device
+            sparse_module = get_sparse_module()
+            self.P = sparse_module.csc_matrix((data, (row_indices, col_indices)), shape=(n, k))
 
         X_sketch = X.dot(self.P)
+        
         # Convert to dense array and apply threshold (>0 -> 1)
         X_sketch_dense = X_sketch.toarray()
-        X_sketch_binary = np.where(X_sketch_dense > 0, 1, 0).astype(np.int8)
-        return X_sketch_binary
+        xp = get_array_module(X_sketch_dense)
+        X_sketch_binary = xp.where(X_sketch_dense > 0, 1, 0).astype(xp.int8)
+        
+        # Return as numpy array (transfer from GPU if needed)
+        return to_cpu(X_sketch_binary)
     
     def estimate_inner_product(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """

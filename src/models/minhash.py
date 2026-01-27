@@ -1,6 +1,9 @@
 from .base import SketchModel
 import numpy as np
 from scipy.sparse import csr_matrix
+from ..gpu_utils import (
+    get_array_module, to_cpu, create_random_state, GPUConfig, zeros
+)
 
 class MinHash(SketchModel):
     def __init__(self, seed: int = 42):
@@ -20,14 +23,17 @@ class MinHash(SketchModel):
         """
         n_samples, n_features = X.shape
         
+        use_gpu = GPUConfig.is_enabled()
+        xp = get_array_module()
+        
         # Initialize hashing coefficients if new k or first run
         if self.coeffs is None or self.k != k:
             self.k = k
-            rng = np.random.RandomState(self.seed)
+            rng = create_random_state(self.seed, use_gpu)
             # Generate k pairs of coefficients (a, b)
             # a should be odd/nonzero to be coprime with powers of 2 (conceptually)
             # basically just random integers
-            self.coeffs = rng.randint(1, self.BIG_PRIME, size=(k, 2)).astype(np.int64)
+            self.coeffs = rng.randint(1, self.BIG_PRIME, size=(k, 2)).astype(xp.int64)
 
         sketches = []
         
@@ -42,7 +48,7 @@ class MinHash(SketchModel):
             
             if indices.size == 0:
                 # Empty set -> max hash value or 0 marker
-                sketches.append(np.zeros(k, dtype=int))
+                sketches.append(zeros(k, dtype=int, use_gpu=use_gpu))
                 continue
             
             # Broadcast indices against coefficients
@@ -60,10 +66,11 @@ class MinHash(SketchModel):
             distinct_hashes = (a * indices + b) % self.BIG_PRIME
             
             # Find min hash for each function (min along axis 1)
-            min_hashes = np.min(distinct_hashes, axis=1)
+            min_hashes = xp.min(distinct_hashes, axis=1)
             sketches.append(min_hashes)
         
-        return np.array(sketches, dtype=int)
+        result = xp.array(sketches, dtype=int)
+        return to_cpu(result)
     
     def estimate_jaccard_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """

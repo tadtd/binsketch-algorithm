@@ -1,6 +1,10 @@
 from .base import SketchModel
 import numpy as np
 from scipy.sparse import csr_matrix
+from ..gpu_utils import (
+    get_array_module, to_gpu, to_cpu,
+    create_random_state, GPUConfig
+)
 
 class SimHash(SketchModel):
     def __init__(self, seed: int = 42):
@@ -15,14 +19,26 @@ class SimHash(SketchModel):
             k: Target dimension for the sketch.
         """
         _, n = X.shape
+        use_gpu = GPUConfig.is_enabled()
+        
+        # Transfer to GPU if enabled
+        if use_gpu:
+            X = to_gpu(X)
         
         # Cache random projection matrix R
         if self.R is None or self.R.shape != (n, k):
-            self.R = np.random.RandomState(seed=self.seed).randn(n, k)
+            rng = create_random_state(self.seed, use_gpu)
+            self.R = rng.randn(n, k)
             
         predictions = X.dot(self.R)
-        sketch = (predictions >= 0).astype(np.int8)
-        return sketch
+        xp = get_array_module(predictions if hasattr(predictions, 'shape') else predictions.toarray())
+        
+        # Handle sparse result
+        if hasattr(predictions, 'toarray'):
+            predictions = predictions.toarray()
+        
+        sketch = (predictions >= 0).astype(xp.int8)
+        return to_cpu(sketch)
     
     def estimate_hamming_distance(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """

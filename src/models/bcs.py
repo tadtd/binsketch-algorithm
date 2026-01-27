@@ -1,6 +1,10 @@
 from .base import SketchModel
 import numpy as np
 from scipy.sparse import csr_matrix, coo_matrix
+from ..gpu_utils import (
+    get_array_module, get_sparse_module, to_gpu, to_cpu,
+    create_random_state, GPUConfig, arange, ones
+)
 
 class BinaryCompressionSchema(SketchModel):
     def __init__(self, seed: int = 42):
@@ -16,23 +20,33 @@ class BinaryCompressionSchema(SketchModel):
             k: Target dimension for the sketch.
         """
         _, n_features = X.shape
+        use_gpu = GPUConfig.is_enabled()
+        
+        # Transfer to GPU if enabled
+        if use_gpu:
+            X = to_gpu(X)
         
         # Cache projection matrix P if not exists or dimensions changed
         if not hasattr(self, 'P') or self.P is None or self.P.shape != (n_features, k):
-            rng = np.random.RandomState(seed=self.seed)
+            rng = create_random_state(self.seed, use_gpu)
+            xp = get_array_module()
+            
             buckets = rng.randint(0, k, size=n_features)
-            row_indices = np.arange(n_features)
+            row_indices = arange(n_features, use_gpu=use_gpu)
             col_indices = buckets
-            data = np.ones(n_features, dtype=int)
-            self.P = coo_matrix((data, (row_indices, col_indices)), shape=(n_features, k))
+            data = ones(n_features, dtype=int, use_gpu=use_gpu)
+            
+            sparse_module = get_sparse_module()
+            self.P = sparse_module.coo_matrix((data, (row_indices, col_indices)), shape=(n_features, k))
 
         X_sketch = X.dot(self.P)
         
         # Convert to dense and modulo 2
-        X_sketch_dense = X_sketch.toarray().astype(int)
-        X_sketch_binary = X_sketch_dense % 2
+        X_sketch_dense = X_sketch.toarray()
+        xp = get_array_module(X_sketch_dense)
+        X_sketch_binary = X_sketch_dense.astype(int) % 2
         
-        return X_sketch_binary
+        return to_cpu(X_sketch_binary)
 
     def estimate_inner_product(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """

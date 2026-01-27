@@ -1,9 +1,30 @@
 import numpy as np
 from scipy.sparse import csr_matrix
 from typing import Union
+from .gpu_utils import get_array_module, to_cpu, GPU_AVAILABLE
+
+# Try to import CuPy types for type checking
+if GPU_AVAILABLE:
+    try:
+        import cupy as cp
+        from cupyx.scipy.sparse import csr_matrix as gpu_csr_matrix
+    except ImportError:
+        cp = None
+        gpu_csr_matrix = None
+else:
+    cp = None
+    gpu_csr_matrix = None
 
 def _to_array(v: Union[np.ndarray, csr_matrix]) -> np.ndarray:
     """Convert input to numpy array if needed."""
+    # Handle GPU arrays
+    if GPU_AVAILABLE and cp is not None:
+        if isinstance(v, cp.ndarray):
+            return v
+        if gpu_csr_matrix and isinstance(v, gpu_csr_matrix):
+            return v.toarray()
+    
+    # Handle CPU arrays
     if isinstance(v, np.ndarray):
         return v
     return v.toarray()
@@ -16,7 +37,11 @@ def mse(v1: Union[np.ndarray, csr_matrix], v2: Union[np.ndarray, csr_matrix]) ->
     if a1.shape != a2.shape:
         raise ValueError("Vectors must be of the same length")
     
-    return float(np.mean((a1 - a2) ** 2))
+    xp = get_array_module(a1)
+    result = xp.mean((a1 - a2) ** 2)
+    
+    # Transfer to CPU if needed
+    return float(to_cpu(result))
 
 
 def minus_log_mse(v1: Union[np.ndarray, csr_matrix], v2: Union[np.ndarray, csr_matrix]) -> float:
