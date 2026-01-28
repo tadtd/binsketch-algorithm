@@ -117,7 +117,7 @@ def save_experiment1_ground_truth(
     
     # Generate output path if not provided
     if output_path is None:
-        dataset_name = Path(data_path).stem
+        dataset_name = Path(data_path).stem.replace('_binary', '')
         output_path = f"ground_truth_{dataset_name}_{similarity_score}.json"
     
     # Prepare data for JSON

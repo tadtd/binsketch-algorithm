@@ -73,9 +73,12 @@ def run_experiment1(
     
     # Load or calculate ground truth
     if ground_truth_path is not None:
-        ground_truth_file = Path(ground_truth_path)
+        # Replace template placeholders if present
+        filename = ground_truth_path.replace('{DATASET}', dataset_name).replace('{SIMILARITY_SCORE}', similarity_score).replace('{SIMILARITY}', similarity_score)
+        # Always place in experiment/ground_truth/ directory
+        ground_truth_file = Path(f"experiment/ground_truth/{filename}")
     else:
-        ground_truth_file = Path(output_dir) / f"ground_truth_{dataset_name}_{similarity_score}.json"
+        ground_truth_file = Path("experiment/ground_truth") / f"ground_truth_{dataset_name}_{similarity_score}.json"
     
     if ground_truth_file.exists():
         gt_data = load_experiment1_ground_truth(str(ground_truth_file))

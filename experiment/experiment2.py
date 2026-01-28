@@ -150,11 +150,11 @@ def run_experiment2(
                 print(f"  Compression length k={k}")
                 
                 AlgoClass = ALGO_MAP[algo_name]
-                model = AlgoClass(k=k, seed=seed)
+                model = AlgoClass(seed=seed)
                 
                 # Compress and retrieve using utility function
                 retrieved = compress_and_retrieve(
-                    model, X_train, X_query, algo_name, threshold, similarity_score
+                    model, X_train, X_query, algo_name, threshold, similarity_score, k=k
                 )
                 
                 # Compute metrics

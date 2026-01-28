@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from src.metric import mse, minus_log_mse, precision_score, recall_score, f1_score, accuracy_score
 from src.similarity_scores import cosine_similarity, jaccard_similarity, inner_product
+from src.similarity_scores import batch_inner_product, batch_cosine_similarity, batch_jaccard_similarity
 from src.gpu_utils import GPUConfig, to_gpu, to_cpu, get_array_module
 
 
@@ -468,7 +469,7 @@ def split_dataset(X: np.ndarray, train_ratio: float = 0.9, seed: int = 42) -> Tu
 def compute_pairwise_similarities(X1: np.ndarray, X2: np.ndarray, similarity_score: str) -> np.ndarray:
     """
     Compute pairwise similarity matrix between two sets of vectors.
-    Uses similarity functions from src.similarity_scores module.
+    Uses GPU-accelerated batch operations when available.
     
     Args:
         X1: First set of vectors (n1, d)
@@ -478,24 +479,54 @@ def compute_pairwise_similarities(X1: np.ndarray, X2: np.ndarray, similarity_sco
     Returns:
         Similarity matrix (n1, n2)
     """
-    # Map similarity score to function from src.similarity_scores
-    similarity_func = {
-        'inner_product': inner_product,
-        'cosine_similarity': cosine_similarity,
-        'jaccard_similarity': jaccard_similarity
-    }.get(similarity_score)
+    use_gpu = GPUConfig.is_enabled()
     
-    if similarity_func is None:
-        raise ValueError(f"Unknown similarity_score: {similarity_score}")
-    
-    n1, n2 = X1.shape[0], X2.shape[0]
-    similarities = np.zeros((n1, n2))
-    
-    for i in tqdm(range(n1), desc=f"Computing {similarity_score}"):
-        for j in range(n2):
-            similarities[i, j] = similarity_func(X1[i], X2[j])
-    
-    return similarities
+    if use_gpu:
+        # GPU-accelerated batch computation
+        print(f"Computing {similarity_score} with GPU acceleration...")
+        X1_gpu = to_gpu(X1.astype(np.float32))
+        X2_gpu = to_gpu(X2.astype(np.float32))
+        xp = get_array_module(X1_gpu)
+        
+        # Compute in batches to manage memory
+        batch_size = 100
+        n1 = X1.shape[0]
+        similarities = xp.zeros((n1, X2.shape[0]), dtype=xp.float32)
+        
+        for i in tqdm(range(0, n1, batch_size), desc=f"Computing {similarity_score}", unit="batch"):
+            batch_end = min(i + batch_size, n1)
+            X1_batch = X1_gpu[i:batch_end]
+            
+            if similarity_score == 'inner_product':
+                similarities[i:batch_end] = batch_inner_product(X1_batch, X2_gpu)
+            elif similarity_score == 'cosine_similarity':
+                similarities[i:batch_end] = batch_cosine_similarity(X1_batch, X2_gpu)
+            elif similarity_score == 'jaccard_similarity':
+                similarities[i:batch_end] = batch_jaccard_similarity(X1_batch, X2_gpu)
+            else:
+                raise ValueError(f"Unknown similarity_score: {similarity_score}")
+        
+        return to_cpu(similarities)
+    else:
+        # CPU fallback
+        print(f"Computing {similarity_score} (CPU)...")
+        similarity_func = {
+            'inner_product': inner_product,
+            'cosine_similarity': cosine_similarity,
+            'jaccard_similarity': jaccard_similarity
+        }.get(similarity_score)
+        
+        if similarity_func is None:
+            raise ValueError(f"Unknown similarity_score: {similarity_score}")
+        
+        n1, n2 = X1.shape[0], X2.shape[0]
+        similarities = np.zeros((n1, n2))
+        
+        for i in tqdm(range(n1), desc=f"Computing {similarity_score}"):
+            for j in range(n2):
+                similarities[i, j] = similarity_func(X1[i], X2[j])
+        
+        return similarities
 
 
 def find_ground_truth_neighbors(
@@ -535,19 +566,21 @@ def compress_and_retrieve(
     X_query: np.ndarray,
     algo_name: str,
     threshold: float,
-    similarity_score: str
+    similarity_score: str,
+    k: int
 ) -> List[List[int]]:
     """
     Compress training and query data, then retrieve neighbors for query points.
     Uses mapping() to compress data (no fit() needed).
     
     Args:
-        model: Model instance (initialized with k)
+        model: Model instance
         X_train: Training vectors
         X_query: Query vectors
         algo_name: Algorithm name
         threshold: Similarity threshold
         similarity_score: Type of similarity metric
+        k: Compression length
         
     Returns:
         List of retrieved neighbor lists for each query point
@@ -560,8 +593,8 @@ def compress_and_retrieve(
     
     # Compress both training and query data using mapping
     print(f"  Compressing data...")
-    sketch_train = model.mapping(X_train_csr)
-    sketch_query = model.mapping(X_query_csr)
+    sketch_train = model.mapping(X_train_csr, k=k)
+    sketch_query = model.mapping(X_query_csr, k=k)
     
     # Get estimator function
     estimator = get_estimator(model, algo_name, similarity_score)
@@ -696,12 +729,17 @@ def save_experiment2_ground_truth(
     import json
     import os
     
+    dataset_name = Path(data_path).stem.replace('_binary', '')
+    
     # Generate filepath if not provided
     if output_path is None:
-        dataset_name = Path(data_path).stem.replace('_binary', '')
-        filepath = f"ground_truth_exp2_{dataset_name}_{similarity_score}.json"
+        filename = f"ground_truth_exp2_{dataset_name}_{similarity_score}.json"
     else:
-        filepath = output_path
+        # Replace template placeholders if present
+        filename = output_path.replace('{DATASET}', dataset_name).replace('{SIMILARITY_SCORE}', similarity_score).replace('{SIMILARITY}', similarity_score)
+    
+    # Always place in experiment/ground_truth/ directory
+    filepath = f"experiment/ground_truth/{filename}"
     
     # Create parent directory if needed
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
@@ -744,12 +782,17 @@ def load_experiment2_ground_truth(
     import json
     import os
     
+    dataset_name = Path(data_path).stem.replace('_binary', '')
+    
     # Generate filepath if not provided
     if ground_truth_path is None:
-        dataset_name = Path(data_path).stem.replace('_binary', '')
-        filepath = f"ground_truth_exp2_{dataset_name}_{similarity_score}.json"
+        filename = f"ground_truth_exp2_{dataset_name}_{similarity_score}.json"
     else:
-        filepath = ground_truth_path
+        # Replace template placeholders if present
+        filename = ground_truth_path.replace('{DATASET}', dataset_name).replace('{SIMILARITY_SCORE}', similarity_score).replace('{SIMILARITY}', similarity_score)
+    
+    # Always place in experiment/ground_truth/ directory
+    filepath = f"experiment/ground_truth/{filename}"
     
     if not os.path.exists(filepath):
         return None
