@@ -169,7 +169,8 @@ def main():
             compression_lengths=compression_lengths,
             train_ratio=args.train_ratio,
             seed=args.seed,
-            output_path=args.output_path
+            output_path=args.output_path,
+            ground_truth_path=args.ground_truth_path
         )
     
     else:
