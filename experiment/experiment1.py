@@ -84,10 +84,12 @@ def run_experiment1(
         gt_data = load_experiment1_ground_truth(str(ground_truth_file))
         ground_truth = gt_data['ground_truth']
         pair_indices = gt_data['pairs']
-        print(f"Loaded {len(ground_truth)} ground truth pairs")
+        print(f"Loaded {len(ground_truth)} ground truth pairs from cache")
     else:
         print(f"Calculating ground truth (this may take a while)...")
-        ground_truth, pair_indices = calculate_experiment1_ground_truth(X_dense, similarity_score)
+        ground_truth, pair_indices = calculate_experiment1_ground_truth(
+            X_dense, similarity_score, use_gpu=GPUConfig.is_enabled()
+        )
         print(f"Saving ground truth to {ground_truth_file}...")
         save_experiment1_ground_truth(data_path, similarity_score, ground_truth, pair_indices, str(ground_truth_file))
         print(f"Saved {len(ground_truth)} ground truth pairs")
