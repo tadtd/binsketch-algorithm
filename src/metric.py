@@ -52,23 +52,29 @@ def minus_log_mse(v1: Union[np.ndarray, csr_matrix], v2: Union[np.ndarray, csr_m
     
     return -np.log(mse_value)
 
-def precision(true_positive: int, false_positive: int) -> float:
+def precision_score(true_positive: int, false_positive: int) -> float:
     """Compute Precision given true positives and false positives."""
     if true_positive + false_positive == 0:
         return 0.0
     
     return true_positive / (true_positive + false_positive)
 
-def recall(true_positive: int, false_negative: int) -> float:
+def recall_score(true_positive: int, false_negative: int) -> float:
     """Compute Recall given true positives and false negatives."""
     if true_positive + false_negative == 0:
         return 0.0
     
     return true_positive / (true_positive + false_negative)
 
-def f1_score(precision: float, recall: float) -> float:
+def f1_score(true_positive: int, false_positive: int, false_negative: int) -> float:
     """Compute the F1 Score given precision and recall."""
-    if precision + recall == 0:
-        return 0.0
-    
-    return 2 * (precision * recall) / (precision + recall)
+    prec = precision_score(true_positive, false_positive)
+    rec = recall_score(true_positive, false_negative)
+    return f1_score(prec, rec)
+
+def accuracy_score(true_positive: int, false_positive: int, false_negative: int) -> float:
+    """Compute accuracy as Jaccard index of sets."""
+    total = true_positive + false_positive + false_negative
+    if total == 0:
+        return 1.0
+    return true_positive / total

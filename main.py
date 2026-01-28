@@ -1,24 +1,18 @@
-"""Main experiment runner for BinSketch algorithm evaluation."""
+"""Main experiment dispatcher for BinSketch algorithm evaluation.
+
+This script dispatches to different experiments:
+- Experiment 1: Accuracy of Similarity Estimation (MSE-based)
+- Experiment 2: Retrieval Performance (Precision/Recall/F1/Accuracy)
+"""
 import argparse
-from pathlib import Path
-from typing import List, Optional
-import numpy as np
+import sys
 
-from src import BinSketch, BinaryCompressionSchema, MinHash, SimHash
 from src.gpu_utils import GPUConfig
-from src.utils import (
-    load_data, filter_pairs_by_threshold, run_algorithm_experiment, save_plot
-)
-from save_ground_truth import calculate_ground_truth, load_ground_truth, save_ground_truth_to_file
+from experiment import run_experiment1, run_experiment2
 
 
-# Algorithm mapping
-ALGO_MAP = {
-    'BinSketch': BinSketch,
-    'BCS': BinaryCompressionSchema,
-    'MinHash': MinHash,
-    'SimHash': SimHash
-}
+# Algorithm choices
+ALGORITHM_CHOICES = ['BinSketch', 'BCS', 'MinHash', 'SimHash']
 
 # Default compression lengths
 DEFAULT_COMPRESSION_LENGTHS = [100, 500, 1000, 2000, 3000, 4000, 5000]
@@ -27,8 +21,14 @@ DEFAULT_COMPRESSION_LENGTHS = [100, 500, 1000, 2000, 3000, 4000, 5000]
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='BinSketch Experiment Runner',
+        description='BinSketch Experiment Dispatcher',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    parser.add_argument(
+        '--experiment', type=str, required=True,
+        choices=['1', '2', 'exp1', 'exp2'],
+        help='Experiment to run: 1/exp1 for accuracy estimation, 2/exp2 for retrieval'
     )
     
     parser.add_argument(
@@ -38,7 +38,7 @@ def parse_arguments() -> argparse.Namespace:
     
     parser.add_argument(
         '--algo', nargs='+', default=['BinSketch'],
-        choices=list(ALGO_MAP.keys()),
+        choices=ALGORITHM_CHOICES,
         help='Algorithms to run'
     )
     
@@ -48,20 +48,9 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     parser.add_argument(
-        '--use_gpu', action='store_true',
-        help='Enable GPU acceleration (requires CuPy and CUDA)'
-    )
-    
-    parser.add_argument(
-        '--eval_metric', type=str, default='minus_log_mse',
-        choices=['mse', 'minus_log_mse'],
-        help='Evaluation metric for comparing estimates to ground truth'
-    )
-    
-    parser.add_argument(
         '--similarity_score', type=str, default='cosine_similarity',
         choices=['cosine_similarity', 'jaccard_similarity', 'inner_product'],
-        help='Similarity metric for ground truth calculation and estimation'
+        help='Similarity metric'
     )
     
     parser.add_argument(
@@ -71,13 +60,8 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     parser.add_argument(
-        '--output_dir', type=str, default='.',
-        help='Directory to save output plots'
-    )
-    
-    parser.add_argument(
-        '--ground_truth_path', type=str, default=None,
-        help='Path to load/save ground truth JSON file (default: auto-generated based on dataset and similarity metric)'
+        '--use_gpu', action='store_true',
+        help='Enable GPU acceleration (requires CuPy and CUDA)'
     )
     
     parser.add_argument(
@@ -85,102 +69,51 @@ def parse_arguments() -> argparse.Namespace:
         help='Random seed for reproducibility'
     )
     
+    # Experiment 1 specific arguments
+    parser.add_argument(
+        '--eval_metric', type=str, default='minus_log_mse',
+        choices=['mse', 'minus_log_mse'],
+        help='[Exp1] Evaluation metric for comparing estimates to ground truth'
+    )
+    
+    parser.add_argument(
+        '--output_dir', type=str, default='.',
+        help='[Exp1] Directory to save output plots'
+    )
+    
+    parser.add_argument(
+        '--ground_truth_path', type=str, default=None,
+        help='[Exp1] Path to load/save ground truth JSON file'
+    )
+    
+    # Experiment 2 specific arguments
+    parser.add_argument(
+        '--retrieval_metric', type=str, default='f1',
+        choices=['precision', 'recall', 'f1', 'accuracy'],
+        help='[Exp2] Retrieval metric to evaluate'
+    )
+    
+    parser.add_argument(
+        '--train_ratio', type=float, default=0.9,
+        help='[Exp2] Ratio of training data (0-1)'
+    )
+    
+    parser.add_argument(
+        '--output_path', type=str, default=None,
+        help='[Exp2] Path to save results JSON file'
+    )
+    
     return parser.parse_args()
 
 
-def run_experiment(
-    data_path: str,
-    algorithms: List[str],
-    thresholds: List[float],
-    similarity_score: str,
-    eval_metric: str,
-    compression_lengths: List[int],
-    output_dir: str,
-    seed: int = 42,
-    ground_truth_path: Optional[str] = None
-) -> None:
-    """
-    Run the complete experiment pipeline.
-    
-    Args:
-        data_path: Path to data file
-        algorithms: List of algorithm names to test
-        thresholds: List of similarity thresholds
-        similarity_score: Similarity metric name
-        eval_metric: Evaluation metric name
-        compression_lengths: List of compression lengths to test
-        output_dir: Output directory for results
-        seed: Random seed
-        ground_truth_path: Optional path to ground truth JSON file
-    """
-    X_dense, X_csr = load_data(data_path)
-    
-    dataset_name = Path(data_path).stem.replace('_binary', '')
-    
-    if ground_truth_path is not None:
-        ground_truth_file = Path(ground_truth_path)
-    else:
-        ground_truth_file = Path(output_dir) / f"ground_truth_{dataset_name}_{similarity_score}.json"
-    
-    if ground_truth_file.exists():
-        gt_data = load_ground_truth(str(ground_truth_file))
-        ground_truth = gt_data['ground_truth']
-        pair_indices = gt_data['pairs']
-        print(f"Loaded {len(ground_truth)} ground truth pairs")
-    else:
-        print(f"Calculating ground truth (this may take a while)...")
-        ground_truth, pair_indices = calculate_ground_truth(X_dense, similarity_score)
-        print(f"Saving ground truth to {ground_truth_file}...")
-        save_ground_truth_to_file(data_path, similarity_score, ground_truth, pair_indices, str(ground_truth_file))
-        print(f"Saved {len(ground_truth)} ground truth pairs")
-    
-    for threshold in thresholds:
-        print(f"\n{'='*40}")
-        print(f"Processing Threshold {threshold}")
-        print(f"{'='*40}")
-        
-        gt_filtered, pairs_filtered = filter_pairs_by_threshold(
-            ground_truth, pair_indices, threshold
-        )
-        
-        if gt_filtered is None:
-            print(f"  No pairs found > {threshold}")
-            continue
-        
-        print(f"  Valid Pairs: {len(gt_filtered)}")
-        
-        results = {}
-        for algo_name in algorithms:
-            if algo_name not in ALGO_MAP:
-                print(f"  Unknown algorithm: {algo_name}, skipping...")
-                continue
-            
-            print(f"  > Running {algo_name}...")
-            model = ALGO_MAP[algo_name](seed=seed)
-            
-            try:
-                scores = run_algorithm_experiment(
-                    model, X_csr, pairs_filtered, gt_filtered,
-                    compression_lengths, algo_name, similarity_score, eval_metric
-                )
-                results[algo_name] = scores
-            except Exception as e:
-                print(f"  Error: Failed to run {algo_name}: {e}")
-                continue
-        
-        if results:
-            filepath = save_plot(
-                compression_lengths, results, similarity_score, eval_metric, threshold, output_dir, dataset_name
-            )
-            print(f"  Saved: {filepath}")
-        else:
-            print(f"  No results to plot for threshold {threshold}")
+
 
 
 def main():
-    """Main entry point."""
+    """Main entry point - dispatches to experiments."""
     args = parse_arguments()
     
+    # Configure GPU
     if args.use_gpu:
         success = GPUConfig.enable_gpu()
         if not success:
@@ -188,29 +121,61 @@ def main():
     else:
         print("Running on CPU (use --use_gpu to enable GPU acceleration)")
     
-    invalid_algos = [a for a in args.algo if a not in ALGO_MAP]
+    # Validate algorithms
+    invalid_algos = [a for a in args.algo if a not in ALGORITHM_CHOICES]
     if invalid_algos:
         print(f"Error: Unknown algorithms: {invalid_algos}")
-        print(f"Available algorithms: {list(ALGO_MAP.keys())}")
+        print(f"Available algorithms: {ALGORITHM_CHOICES}")
         return
     
+    # Set compression lengths
     compression_lengths = (
         args.compression_lengths
         if args.compression_lengths is not None
         else DEFAULT_COMPRESSION_LENGTHS
     )
     
-    run_experiment(
-        data_path=args.data_path,
-        algorithms=args.algo,
-        thresholds=args.threshold,
-        similarity_score=args.similarity_score,
-        eval_metric=args.eval_metric,
-        compression_lengths=compression_lengths,
-        output_dir=args.output_dir,
-        seed=args.seed,
-        ground_truth_path=args.ground_truth_path
-    )
+    # Dispatch to appropriate experiment
+    experiment = args.experiment.lower()
+    
+    if experiment in ['1', 'exp1']:
+        print("="*60)
+        print("Running Experiment 1: Accuracy of Similarity Estimation")
+        print("="*60)
+        
+        run_experiment1(
+            data_path=args.data_path,
+            algorithms=args.algo,
+            thresholds=args.threshold,
+            similarity_score=args.similarity_score,
+            eval_metric=args.eval_metric,
+            compression_lengths=compression_lengths,
+            output_dir=args.output_dir,
+            seed=args.seed,
+            ground_truth_path=args.ground_truth_path
+        )
+    
+    elif experiment in ['2', 'exp2']:
+        print("="*60)
+        print("Running Experiment 2: Retrieval Performance Evaluation")
+        print("="*60)
+        
+        run_experiment2(
+            data_path=args.data_path,
+            algorithms=args.algo,
+            thresholds=args.threshold,
+            similarity_score=args.similarity_score,
+            retrieval_metric=args.retrieval_metric,
+            compression_lengths=compression_lengths,
+            train_ratio=args.train_ratio,
+            seed=args.seed,
+            output_path=args.output_path
+        )
+    
+    else:
+        print(f"Error: Unknown experiment '{args.experiment}'")
+        print("Use --experiment 1 or --experiment 2")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
