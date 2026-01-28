@@ -19,7 +19,8 @@ from save_ground_truth import (
 # Import from local utils (works both as module and standalone)
 
 from experiment.utils import (
-    load_data, filter_pairs_by_threshold, run_algorithm_experiment, save_plot
+    load_data, filter_pairs_by_threshold, run_algorithm_experiment, save_plot,
+    plot_experiment1_results
 )
 
 
@@ -66,6 +67,9 @@ def run_experiment1(
     X_dense, X_csr = load_data(data_path)
     
     dataset_name = Path(data_path).stem.replace('_binary', '')
+    
+    # Store all results for combined plotting
+    all_results = {}
     
     # Load or calculate ground truth
     if ground_truth_path is not None:
@@ -121,12 +125,24 @@ def run_experiment1(
                 continue
         
         if results:
+            # Save individual plot
             filepath = save_plot(
-                compression_lengths, results, similarity_score, eval_metric, threshold, output_dir, dataset_name
+                compression_lengths, results, similarity_score, eval_metric, threshold, 
+                "results/experiment1", dataset_name
             )
             print(f"  Saved: {filepath}")
+            
+            # Store results for combined plot
+            all_results[threshold] = results
         else:
             print(f"  No results to plot for threshold {threshold}")
+    
+    # Create combined multi-threshold plot
+    if all_results:
+        plot_experiment1_results(
+            all_results, compression_lengths, similarity_score, 
+            eval_metric, dataset_name, "results/experiment1"
+        )
 
 
 def parse_arguments() -> argparse.Namespace:

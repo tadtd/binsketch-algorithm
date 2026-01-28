@@ -252,6 +252,187 @@ def save_plot(
     return filepath
 
 
+def plot_experiment2_results(
+    results: Dict,
+    output_dir: str = "results/experiment2"
+) -> str:
+    """
+    Create and save multi-threshold subplot visualization for Experiment 2.
+    Creates a grid of subplots, one for each threshold value.
+    
+    Args:
+        results: Results dictionary from run_experiment2
+        output_dir: Output directory for plots
+        
+    Returns:
+        Path to saved plot file
+    """
+    import os
+    import math
+    
+    experiments = results['experiments']
+    n_thresholds = len(experiments)
+    
+    if n_thresholds == 0:
+        print("No results to plot")
+        return None
+    
+    # Determine grid layout
+    n_cols = min(4, n_thresholds)
+    n_rows = math.ceil(n_thresholds / n_cols)
+    
+    # Create figure with subplots
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    
+    # Flatten axes for easy iteration
+    if n_thresholds == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten() if n_thresholds > 1 else [axes]
+    
+    # Extract dataset name
+    dataset_name = Path(results['data_path']).stem.replace('_binary', '')
+    similarity_score = results['similarity_score']
+    retrieval_metric = results['retrieval_metric']
+    
+    # Plot each threshold
+    for idx, exp_data in enumerate(experiments):
+        ax = axes[idx]
+        threshold = exp_data['threshold']
+        
+        # Extract data for each algorithm
+        for algo_name, algo_data in exp_data['algorithms'].items():
+            compression_lengths = sorted(algo_data.keys())
+            metric_values = [algo_data[k][retrieval_metric] for k in compression_lengths]
+            
+            ax.plot(compression_lengths, metric_values, marker='o', label=algo_name, linewidth=2)
+        
+        # Set labels and title
+        ax.set_title(f"threshold = {threshold}", fontsize=11)
+        ax.set_xlabel("Compression Length", fontsize=10)
+        ax.set_ylabel(retrieval_metric.capitalize(), fontsize=10)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim(0, 1.1)
+    
+    # Hide unused subplots
+    for idx in range(n_thresholds, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Overall title
+    fig.suptitle(
+        f"Experiments on {dataset_name.upper()} to calculate {retrieval_metric.capitalize()} using {similarity_score.replace('_', ' ').title()}",
+        fontsize=14, fontweight='bold'
+    )
+    
+    plt.tight_layout()
+    
+    # Save plot
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    filename = f"{dataset_name}_{similarity_score}_{retrieval_metric}_all_thresholds.png"
+    filepath = os.path.join(output_dir, filename)
+    
+    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"\nPlot saved to {filepath}")
+    
+    return filepath
+
+
+def plot_experiment1_results(
+    all_results: Dict,
+    compression_lengths: List[int],
+    similarity_score: str,
+    eval_metric: str,
+    dataset_name: str,
+    output_dir: str = "results/experiment1"
+) -> str:
+    """
+    Create and save multi-threshold subplot visualization for Experiment 1.
+    Creates a grid of subplots, one for each threshold value.
+    
+    Args:
+        all_results: Dictionary mapping thresholds to {algo_name: scores}
+        compression_lengths: List of compression lengths
+        similarity_score: Similarity metric name
+        eval_metric: Evaluation metric name
+        dataset_name: Name of the dataset
+        output_dir: Output directory for plots
+        
+    Returns:
+        Path to saved plot file
+    """
+    import os
+    import math
+    
+    thresholds = sorted(all_results.keys(), reverse=True)
+    n_thresholds = len(thresholds)
+    
+    if n_thresholds == 0:
+        print("No results to plot")
+        return None
+    
+    # Determine grid layout
+    n_cols = min(4, n_thresholds)
+    n_rows = math.ceil(n_thresholds / n_cols)
+    
+    # Create figure with subplots
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+    
+    # Flatten axes for easy iteration
+    if n_thresholds == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten() if n_thresholds > 1 else [axes]
+    
+    # Determine y-axis label
+    if eval_metric == 'minus_log_mse':
+        ylabel = "-log(MSE)"
+    else:
+        ylabel = "MSE"
+    
+    # Plot each threshold
+    for idx, threshold in enumerate(thresholds):
+        ax = axes[idx]
+        results = all_results[threshold]
+        
+        # Plot each algorithm
+        for algo_name, scores in results.items():
+            ax.plot(compression_lengths, scores, marker='o', label=algo_name, linewidth=2)
+        
+        # Set labels and title
+        ax.set_title(f"threshold = {threshold}", fontsize=11)
+        ax.set_xlabel("Compression Length", fontsize=10)
+        ax.set_ylabel(ylabel, fontsize=10)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+    
+    # Hide unused subplots
+    for idx in range(n_thresholds, len(axes)):
+        axes[idx].set_visible(False)
+    
+    # Overall title
+    fig.suptitle(
+        f"Experiments on {dataset_name.upper()} to calculate {ylabel} using {similarity_score.replace('_', ' ').title()}",
+        fontsize=14, fontweight='bold'
+    )
+    
+    plt.tight_layout()
+    
+    # Save plot
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    filename = f"{dataset_name}_{similarity_score}_{eval_metric}_all_thresholds.png"
+    filepath = os.path.join(output_dir, filename)
+    
+    plt.savefig(filepath, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"\nCombined plot saved to {filepath}")
+    
+    return filepath
+
+
 # ============================================================================
 # Experiment 2 Utilities
 # ============================================================================
@@ -496,7 +677,7 @@ def save_experiment2_ground_truth(
     similarity_score: str,
     similarities: np.ndarray,
     data_path: str,
-    output_dir: str = "experiment/ground_truth"
+    output_path: Optional[str] = None
 ) -> str:
     """
     Save Experiment 2 ground truth similarity matrix to JSON file.
@@ -507,7 +688,7 @@ def save_experiment2_ground_truth(
         similarity_score: Similarity metric name
         similarities: Similarity matrix (n_query, n_train)
         data_path: Original data path
-        output_dir: Output directory
+        output_path: Output JSON file path (default: auto-generated)
         
     Returns:
         Path to saved JSON file
@@ -515,13 +696,15 @@ def save_experiment2_ground_truth(
     import json
     import os
     
-    # Create output directory
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    # Generate filepath if not provided
+    if output_path is None:
+        dataset_name = Path(data_path).stem.replace('_binary', '')
+        filepath = f"ground_truth_exp2_{dataset_name}_{similarity_score}.json"
+    else:
+        filepath = output_path
     
-    # Generate filename
-    dataset_name = Path(data_path).stem.replace('_binary', '')
-    filename = f"exp2_gt_{dataset_name}_{similarity_score}.json"
-    filepath = os.path.join(output_dir, filename)
+    # Create parent directory if needed
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     
     # Prepare data
     data = {
@@ -545,7 +728,7 @@ def save_experiment2_ground_truth(
 def load_experiment2_ground_truth(
     data_path: str,
     similarity_score: str,
-    output_dir: str = "experiment/ground_truth"
+    ground_truth_path: Optional[str] = None
 ) -> Optional[Dict]:
     """
     Load Experiment 2 ground truth similarity matrix from JSON file if it exists.
@@ -553,7 +736,7 @@ def load_experiment2_ground_truth(
     Args:
         data_path: Original data path
         similarity_score: Similarity metric name
-        output_dir: Ground truth directory
+        ground_truth_path: Path to ground truth JSON file (default: auto-generated)
         
     Returns:
         Dictionary with ground truth data or None if file doesn't exist
@@ -561,10 +744,12 @@ def load_experiment2_ground_truth(
     import json
     import os
     
-    # Generate filename
-    dataset_name = Path(data_path).stem.replace('_binary', '')
-    filename = f"exp2_gt_{dataset_name}_{similarity_score}.json"
-    filepath = os.path.join(output_dir, filename)
+    # Generate filepath if not provided
+    if ground_truth_path is None:
+        dataset_name = Path(data_path).stem.replace('_binary', '')
+        filepath = f"ground_truth_exp2_{dataset_name}_{similarity_score}.json"
+    else:
+        filepath = ground_truth_path
     
     if not os.path.exists(filepath):
         return None

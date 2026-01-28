@@ -24,7 +24,8 @@ from experiment.utils import (
     compute_retrieval_metrics,
     find_max_similarity,
     save_experiment2_ground_truth,
-    load_experiment2_ground_truth
+    load_experiment2_ground_truth,
+    plot_experiment2_results
 )
 
 
@@ -50,7 +51,8 @@ def run_experiment2(
     compression_lengths: List[int],
     train_ratio: float = 0.9,
     seed: int = 42,
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    ground_truth_path: Optional[str] = None
 ) -> Dict:
     """
     Run Experiment 2: Retrieval Performance Evaluation.
@@ -69,6 +71,7 @@ def run_experiment2(
         train_ratio: Training set ratio
         seed: Random seed
         output_path: Optional path to save results
+        ground_truth_path: Optional path to load/save ground truth JSON file
         
     Returns:
         Dictionary of results
@@ -104,7 +107,7 @@ def run_experiment2(
         print(f"{'='*60}")
         
         # Try to load ground truth from cache
-        gt_data = load_experiment2_ground_truth(data_path, similarity_score)
+        gt_data = load_experiment2_ground_truth(data_path, similarity_score, ground_truth_path)
         
         if gt_data is not None:
             # Verify indices match
@@ -122,7 +125,8 @@ def run_experiment2(
             # Save for future use
             save_experiment2_ground_truth(
                 train_indices, query_indices,
-                similarity_score, similarities, data_path
+                similarity_score, similarities, data_path,
+                output_path=ground_truth_path
             )
         
         # Find neighbors above threshold from similarity matrix
@@ -169,6 +173,9 @@ def run_experiment2(
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2)
         print(f"\nResults saved to {output_path}")
+    
+    # Generate plot
+    plot_experiment2_results(results, output_dir="results/experiment2")
     
     return results
 
@@ -235,6 +242,11 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     parser.add_argument(
+        '--ground_truth_path', type=str, default=None,
+        help='Path to load/save ground truth JSON file'
+    )
+    
+    parser.add_argument(
         '--find_max_inner_product', action='store_true',
         help='Find and print maximum inner product value in dataset'
     )
@@ -277,7 +289,8 @@ def main():
         compression_lengths=compression_lengths,
         train_ratio=args.train_ratio,
         seed=args.seed,
-        output_path=args.output_path
+        output_path=args.output_path,
+        ground_truth_path=args.ground_truth_path
     )
 
 
