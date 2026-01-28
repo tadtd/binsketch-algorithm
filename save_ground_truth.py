@@ -13,44 +13,24 @@ from itertools import combinations
 from tqdm import tqdm
 
 from src import batch_inner_product, batch_cosine_similarity, batch_jaccard_similarity
-from src.gpu_utils import to_gpu, to_cpu, get_array_module
-
-
-def _get_similarity_function(similarity_score: str):
-    """
-    Get similarity function from src.similarity_scores module.
-    
-    Args:
-        similarity_score: Similarity metric name
-        
-    Returns:
-        Similarity function
-    """
-    similarity_func = {
-        'inner_product': inner_product,
-        'cosine_similarity': cosine_similarity,
-        'jaccard_similarity': jaccard_similarity
-    }.get(similarity_score)
-    
-    if similarity_func is None:
-        raise ValueError(f"Unknown similarity score: {similarity_score}")
-    
-    return similarity_func
+from src.gpu_utils import to_gpu, to_cpu, get_array_module, GPUConfig
 
 
 def calculate_experiment1_ground_truth(
     X_dense: np.ndarray,
     similarity_score: str,
-    use_gpu: bool = False
+    use_gpu: bool = False,
+    chunk_size: int = 500
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Calculate ground truth similarities for all pairs (Experiment 1).
-    Uses vectorized GPU operations for maximum performance.
+    Uses vectorized GPU operations with chunked processing for progress tracking.
     
     Args:
         X_dense: Dense binary matrix (n_samples, n_features)
         similarity_score: Similarity metric ('cosine_similarity', 'jaccard_similarity', 'inner_product')
         use_gpu: Whether to use GPU for computations
+        chunk_size: Number of rows to process per chunk (for progress tracking)
         
     Returns:
         Tuple of (ground_truth_values, pair_indices)
@@ -59,26 +39,42 @@ def calculate_experiment1_ground_truth(
     if use_gpu:
         print("Transferring data to GPU...")
         X_dense = to_gpu(X_dense)
-        print("✓ Data transferred to GPU")
+        xp = get_array_module(X_dense)
+        print(f"✓ Data transferred to GPU (using {xp.__name__})")
+    else:
+        xp = get_array_module(X_dense)
     
-    xp = get_array_module(X_dense)
     n_samples = X_dense.shape[0]
     pairs = list(combinations(range(n_samples), 2))
     n_pairs = len(pairs)
     
     device = "GPU" if use_gpu else "CPU"
-    print(f"Calculating Ground Truth ({similarity_score}) for {n_pairs} pairs on {device}...")
+    print(f"Calculating Ground Truth ({similarity_score}) for {n_pairs} pairs...")
+    if use_gpu:
+        print(f"  Using GPU-accelerated batch computation...")
     
-    # Compute full similarity matrix using vectorized batch operations
-    print("Computing similarity matrix with vectorized operations...")
-    if similarity_score == 'inner_product':
-        sim_matrix = batch_inner_product(X_dense, X_dense)
-    elif similarity_score == 'cosine_similarity':
-        sim_matrix = batch_cosine_similarity(X_dense, X_dense)
-    elif similarity_score == 'jaccard_similarity':
-        sim_matrix = batch_jaccard_similarity(X_dense, X_dense)
-    else:
-        raise ValueError(f"Unknown similarity score: {similarity_score}")
+    # Compute similarity matrix in chunks with progress bar
+    n_chunks = (n_samples + chunk_size - 1) // chunk_size
+    sim_matrix = xp.zeros((n_samples, n_samples))
+    
+    with tqdm(total=n_chunks, desc="Computing ground truth", unit="batch", 
+              bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+        for i in range(n_chunks):
+            start_idx = i * chunk_size
+            end_idx = min((i + 1) * chunk_size, n_samples)
+            chunk = X_dense[start_idx:end_idx]
+            
+            # Compute similarity for this chunk against all samples
+            if similarity_score == 'inner_product':
+                sim_matrix[start_idx:end_idx] = batch_inner_product(chunk, X_dense)
+            elif similarity_score == 'cosine_similarity':
+                sim_matrix[start_idx:end_idx] = batch_cosine_similarity(chunk, X_dense)
+            elif similarity_score == 'jaccard_similarity':
+                sim_matrix[start_idx:end_idx] = batch_jaccard_similarity(chunk, X_dense)
+            else:
+                raise ValueError(f"Unknown similarity score: {similarity_score}")
+            
+            pbar.update(1)
     
     # Extract upper triangle (all pairs)
     print("Extracting pair similarities...")
@@ -163,6 +159,10 @@ def calculate_and_save_experiment1_ground_truth(
     Returns:
         Path to saved JSON file
     """
+    # Enable GPU if requested
+    if use_gpu:
+        GPUConfig.enable_gpu()
+    
     # Load data
     print(f"Loading matrix from {data_path}...")
     X_dense = np.load(data_path)
@@ -205,18 +205,20 @@ def calculate_experiment2_ground_truth(
     X_train: np.ndarray,
     X_query: np.ndarray,
     similarity_score: str,
-    use_gpu: bool = False
+    use_gpu: bool = False,
+    chunk_size: int = 100
 ) -> np.ndarray:
     """
     Calculate ground truth similarities for Experiment 2 (train/query split).
     Computes similarity matrix between query and training vectors.
-    Uses vectorized GPU operations for maximum performance.
+    Uses vectorized GPU operations with chunked processing for progress tracking.
     
     Args:
         X_train: Training vectors (n_train, n_features)
         X_query: Query vectors (n_query, n_features)
         similarity_score: Similarity metric
         use_gpu: Whether to use GPU for computations
+        chunk_size: Number of query rows to process per chunk
         
     Returns:
         Similarity matrix (n_query, n_train)
@@ -226,33 +228,53 @@ def calculate_experiment2_ground_truth(
         print("Transferring data to GPU...")
         X_train = to_gpu(X_train)
         X_query = to_gpu(X_query)
-        print("✓ Data transferred to GPU")
+        xp = get_array_module(X_train)
+        print(f"✓ Data transferred to GPU (using {xp.__name__})")
+    else:
+        xp = get_array_module(X_train)
     
     device = "GPU" if use_gpu else "CPU"
-    print(f"Calculating Experiment 2 Ground Truth ({similarity_score}) on {device}...")
+    print(f"Calculating Experiment 2 Ground Truth ({similarity_score})...")
     print(f"  Training samples: {X_train.shape[0]}")
     print(f"  Query samples: {X_query.shape[0]}")
+    print(f"  Using GPU-accelerated batch computation...")
     
     xp = get_array_module(X_train)
+    n_query = X_query.shape[0]
+    n_train = X_train.shape[0]
     
-    # Compute full similarity matrix using vectorized operations
-    print("Computing similarity matrix with GPU acceleration...")
-    if similarity_score == 'inner_product':
-        # Inner product: Q @ T.T
-        similarities = xp.dot(X_query, X_train.T)
-    elif similarity_score == 'cosine_similarity':
-        # Cosine: (Q @ T.T) / (||Q|| * ||T||.T)
-        query_norms = xp.sqrt(xp.sum(X_query ** 2, axis=1, keepdims=True))
-        train_norms = xp.sqrt(xp.sum(X_train ** 2, axis=1, keepdims=True))
-        query_norms = xp.maximum(query_norms, 1e-10)
-    # Compute full similarity matrix using vectorized batch operations
-    print("Computing similarity matrix with GPU acceleration...")
-    if similarity_score == 'inner_product':
-        similarities = batch_inner_product(X_query, X_train)
-    elif similarity_score == 'cosine_similarity':
-        similarities = batch_cosine_similarity(X_query, X_train)
-    elif similarity_score == 'jaccard_similarity':
-        similarities = batch_jaccard_similarity(X_query, X_train)
+    # Compute similarity matrix in chunks with progress bar
+    n_chunks = (n_query + chunk_size - 1) // chunk_size
+    similarities = xp.zeros((n_query, n_train))
+    
+    with tqdm(total=n_chunks, desc="Computing similarities", unit="batch",
+              bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+        for i in range(n_chunks):
+            start_idx = i * chunk_size
+            end_idx = min((i + 1) * chunk_size, n_query)
+            query_chunk = X_query[start_idx:end_idx]
+            
+            # Compute similarity for this chunk against all training samples
+            if similarity_score == 'inner_product':
+                similarities[start_idx:end_idx] = batch_inner_product(query_chunk, X_train)
+            elif similarity_score == 'cosine_similarity':
+                similarities[start_idx:end_idx] = batch_cosine_similarity(query_chunk, X_train)
+            elif similarity_score == 'jaccard_similarity':
+                similarities[start_idx:end_idx] = batch_jaccard_similarity(query_chunk, X_train)
+            else:
+                raise ValueError(f"Unknown similarity score: {similarity_score}")
+            
+            pbar.update(1)
+    
+    # Transfer back to CPU for JSON serialization
+    similarities = to_cpu(similarities)
+    
+    print(f"\n  Min similarity: {similarities.min():.6f}")
+    print(f"  Max similarity: {similarities.max():.6f}")
+    print(f"  Mean similarity: {similarities.mean():.6f}")
+    
+    return similarities
+
 
 def save_experiment2_ground_truth(
     data_path: str,
@@ -334,6 +356,10 @@ def calculate_and_save_experiment2_ground_truth(
     Returns:
         Path to saved JSON file
     """
+    # Enable GPU if requested
+    if use_gpu:
+        GPUConfig.enable_gpu()
+    
     # Load data
     print(f"Loading matrix from {data_path}...")
     X_dense = np.load(data_path)

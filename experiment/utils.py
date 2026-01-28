@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix
 from tqdm import tqdm
 
-from src.metric import mse, minus_log_mse, precision_score, recall_score, f1_score_from_counts, accuracy_score
+from src.metric import mse, minus_log_mse, precision_score, recall_score, f1_score, accuracy_score
 from src.similarity_scores import cosine_similarity, jaccard_similarity, inner_product
 from src.gpu_utils import GPUConfig, to_gpu, to_cpu, get_array_module
 
@@ -614,7 +614,7 @@ def compute_retrieval_metrics(
         elif metric == 'recall':
             score = recall_score(tp, fn) if len(gt_set) > 0 else 1.0
         elif metric == 'f1':
-            score = f1_score_from_counts(tp, fp, fn)
+            score = f1_score(tp, fp, fn)
         elif metric == 'accuracy':
             score = accuracy_score(tp, fp, fn)
         else:

@@ -67,10 +67,12 @@ def recall_score(true_positive: int, false_negative: int) -> float:
     return true_positive / (true_positive + false_negative)
 
 def f1_score(true_positive: int, false_positive: int, false_negative: int) -> float:
-    """Compute the F1 Score given precision and recall."""
+    """Compute the F1 Score given true positives, false positives, and false negatives."""
     prec = precision_score(true_positive, false_positive)
     rec = recall_score(true_positive, false_negative)
-    return f1_score(prec, rec)
+    if prec + rec == 0:
+        return 0.0
+    return 2 * (prec * rec) / (prec + rec)
 
 def accuracy_score(true_positive: int, false_positive: int, false_negative: int) -> float:
     """Compute accuracy as Jaccard index of sets."""
