@@ -328,7 +328,7 @@ def save_experiment2_ground_truth(
     # Generate output path if not provided
     if output_path is None:
         dataset_name = Path(data_path).stem.replace('_binary', '')
-        output_path = f"experiment/ground_truth/exp2_gt_{dataset_name}_{similarity_score}.json"
+        output_path = f"experiment/ground_truth/ground_truth_exp2_{dataset_name}_{similarity_score}.json"
     
     # Create directory if needed
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
