@@ -44,6 +44,9 @@ def calculate_experiment1_ground_truth(
     else:
         xp = get_array_module(X_dense)
     
+    # Ensure proper dtype to avoid overflow (CRITICAL for inner product!)
+    X_dense = X_dense.astype(xp.float32)
+    
     n_samples = X_dense.shape[0]
     pairs = list(combinations(range(n_samples), 2))
     n_pairs = len(pairs)
@@ -55,7 +58,7 @@ def calculate_experiment1_ground_truth(
     
     # Compute similarity matrix in chunks with progress bar
     n_chunks = (n_samples + chunk_size - 1) // chunk_size
-    sim_matrix = xp.zeros((n_samples, n_samples))
+    sim_matrix = xp.zeros((n_samples, n_samples), dtype=xp.float32)
     
     with tqdm(total=n_chunks, desc="Computing ground truth", unit="batch", 
               bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
@@ -167,6 +170,20 @@ def calculate_and_save_experiment1_ground_truth(
     print(f"Loading matrix from {data_path}...")
     X_dense = np.load(data_path)
     print(f"  Matrix Shape: {X_dense.shape}")
+    print(f"  Data type: {X_dense.dtype}")
+    print(f"  Value range: [{X_dense.min()}, {X_dense.max()}]")
+    
+    # Ensure data is binary (0 or 1)
+    if X_dense.min() < 0 or X_dense.max() > 1 or not np.all(np.isin(X_dense, [0, 1])):
+        print(f"⚠ Warning: Data is not binary! Converting to binary (0/1)...")
+        unique_vals = np.unique(X_dense)
+        print(f"  Unique values in data: {unique_vals[:10]}...")  # Show first 10
+        # Convert to binary: any non-zero value becomes 1
+        X_dense = (X_dense != 0).astype(np.float32)
+        print(f"  After conversion - range: [{X_dense.min()}, {X_dense.max()}]")
+    else:
+        # Ensure float32 for GPU efficiency
+        X_dense = X_dense.astype(np.float32)
     
     # Calculate ground truth
     ground_truth, pairs = calculate_experiment1_ground_truth(X_dense, similarity_score, use_gpu)
@@ -233,19 +250,22 @@ def calculate_experiment2_ground_truth(
     else:
         xp = get_array_module(X_train)
     
+    # Ensure proper dtype to avoid overflow (CRITICAL for inner product!)
+    X_train = X_train.astype(xp.float32)
+    X_query = X_query.astype(xp.float32)
+    
     device = "GPU" if use_gpu else "CPU"
     print(f"Calculating Experiment 2 Ground Truth ({similarity_score})...")
     print(f"  Training samples: {X_train.shape[0]}")
     print(f"  Query samples: {X_query.shape[0]}")
     print(f"  Using GPU-accelerated batch computation...")
     
-    xp = get_array_module(X_train)
     n_query = X_query.shape[0]
     n_train = X_train.shape[0]
     
     # Compute similarity matrix in chunks with progress bar
     n_chunks = (n_query + chunk_size - 1) // chunk_size
-    similarities = xp.zeros((n_query, n_train))
+    similarities = xp.zeros((n_query, n_train), dtype=xp.float32)
     
     with tqdm(total=n_chunks, desc="Computing similarities", unit="batch",
               bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
@@ -364,6 +384,20 @@ def calculate_and_save_experiment2_ground_truth(
     print(f"Loading matrix from {data_path}...")
     X_dense = np.load(data_path)
     print(f"  Matrix Shape: {X_dense.shape}")
+    print(f"  Data type: {X_dense.dtype}")
+    print(f"  Value range: [{X_dense.min()}, {X_dense.max()}]")
+    
+    # Ensure data is binary (0 or 1)
+    if X_dense.min() < 0 or X_dense.max() > 1 or not np.all(np.isin(X_dense, [0, 1])):
+        print(f"⚠ Warning: Data is not binary! Converting to binary (0/1)...")
+        unique_vals = np.unique(X_dense)
+        print(f"  Unique values in data: {unique_vals[:10]}...")  # Show first 10
+        # Convert to binary: any non-zero value becomes 1
+        X_dense = (X_dense != 0).astype(np.float32)
+        print(f"  After conversion - range: [{X_dense.min()}, {X_dense.max()}]")
+    else:
+        # Ensure float32 for GPU efficiency
+        X_dense = X_dense.astype(np.float32)
     
     # Split dataset
     np.random.seed(seed)
