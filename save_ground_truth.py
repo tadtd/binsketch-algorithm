@@ -131,6 +131,9 @@ def save_experiment1_ground_truth(
         "ground_truth": ground_truth.tolist()
     }
     
+    # Create parent directory if needed
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    
     # Save to JSON
     print(f"\nSaving ground truth to {output_path}...")
     with open(output_path, 'w') as f:
