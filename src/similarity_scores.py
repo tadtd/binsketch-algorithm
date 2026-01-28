@@ -15,6 +15,129 @@ else:
     cp = None
     gpu_csr_matrix = None
 
+
+# ============================================================================
+# VECTORIZED BATCH OPERATIONS (for GPU acceleration)
+# ============================================================================
+
+def compute_similarity_matrix(X1: np.ndarray, X2: np.ndarray, similarity_type: str) -> np.ndarray:
+    """
+    Compute pairwise similarity matrix between two sets of vectors using GPU acceleration.
+    
+    Args:
+        X1: First set of vectors (n1, d)
+        X2: Second set of vectors (n2, d)
+        similarity_type: 'inner_product', 'cosine', or 'jaccard'
+        
+    Returns:
+        Similarity matrix (n1, n2)
+    """
+    xp = get_array_module(X1)
+    
+    if similarity_type == 'inner_product':
+        return xp.dot(X1, X2.T)
+    
+    elif similarity_type == 'cosine':
+        # Normalize vectors
+        norms1 = xp.sqrt(xp.sum(X1 ** 2, axis=1, keepdims=True))
+        norms2 = xp.sqrt(xp.sum(X2 ** 2, axis=1, keepdims=True))
+        norms1 = xp.maximum(norms1, 1e-10)
+        norms2 = xp.maximum(norms2, 1e-10)
+        X1_norm = X1 / norms1
+        X2_norm = X2 / norms2
+        return xp.dot(X1_norm, X2_norm.T)
+    
+    elif similarity_type == 'jaccard':
+        # For binary vectors: intersection / union
+        intersection = xp.dot(X1, X2.T)
+        cardinalities1 = xp.sum(X1, axis=1, keepdims=True)
+        cardinalities2 = xp.sum(X2, axis=1, keepdims=True)
+        union = cardinalities1 + cardinalities2.T - intersection
+        union = xp.maximum(union, 1e-10)
+        return intersection / union
+    
+    else:
+        raise ValueError(f"Unknown similarity type: {similarity_type}")
+
+
+def batch_inner_product(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    """
+    Compute inner product between all pairs of rows in X and Y.
+    GPU-accelerated using matrix multiplication.
+    
+    Args:
+        X: Matrix (n, d)
+        Y: Matrix (m, d)
+        
+    Returns:
+        Inner product matrix (n, m)
+    """
+    xp = get_array_module(X)
+    return xp.dot(X, Y.T)
+
+
+def batch_cosine_similarity(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    """
+    Compute cosine similarity between all pairs of rows in X and Y.
+    GPU-accelerated using vectorized operations.
+    
+    Args:
+        X: Matrix (n, d)
+        Y: Matrix (m, d)
+        
+    Returns:
+        Cosine similarity matrix (n, m)
+    """
+    xp = get_array_module(X)
+    
+    # Compute norms
+    norms_X = xp.sqrt(xp.sum(X ** 2, axis=1, keepdims=True))
+    norms_Y = xp.sqrt(xp.sum(Y ** 2, axis=1, keepdims=True))
+    
+    # Avoid division by zero
+    norms_X = xp.maximum(norms_X, 1e-10)
+    norms_Y = xp.maximum(norms_Y, 1e-10)
+    
+    # Normalize
+    X_normalized = X / norms_X
+    Y_normalized = Y / norms_Y
+    
+    # Compute dot product
+    return xp.dot(X_normalized, Y_normalized.T)
+
+
+def batch_jaccard_similarity(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    """
+    Compute Jaccard similarity between all pairs of rows in X and Y.
+    GPU-accelerated for binary vectors using vectorized operations.
+    
+    Args:
+        X: Binary matrix (n, d)
+        Y: Binary matrix (m, d)
+        
+    Returns:
+        Jaccard similarity matrix (n, m)
+    """
+    xp = get_array_module(X)
+    
+    # Intersection = X @ Y.T (for binary vectors, this is the dot product)
+    intersection = xp.dot(X, Y.T)
+    
+    # Union = |X| + |Y| - intersection
+    cardinalities_X = xp.sum(X, axis=1, keepdims=True)
+    cardinalities_Y = xp.sum(Y, axis=1, keepdims=True)
+    union = cardinalities_X + cardinalities_Y.T - intersection
+    
+    # Avoid division by zero
+    union = xp.maximum(union, 1e-10)
+    
+    return intersection / union
+
+
+# ============================================================================
+# PAIRWISE OPERATIONS (for individual vector pairs)
+# ============================================================================
+
 def _to_sparse(x):
     """Convert input to sparse matrix if needed, handling both CPU and GPU arrays."""
     # Check if already sparse
