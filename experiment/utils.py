@@ -596,19 +596,44 @@ def compress_and_retrieve(
     sketch_train = model.mapping(X_train_csr, k=k)
     sketch_query = model.mapping(X_query_csr, k=k)
     
-    # Get estimator function
-    estimator = get_estimator(model, algo_name, similarity_score)
-    
-    # Retrieve neighbors for each query
-    print(f"  Retrieving neighbors...")
-    retrieved = []
-    for i in tqdm(range(len(X_query)), desc="Queries", leave=False):
-        neighbors = []
-        for j in range(len(X_train)):
-            sim = estimator(sketch_query[i], sketch_train[j])
-            if sim >= threshold:
-                neighbors.append(j)
-        retrieved.append(neighbors)
+    # Use GPU-accelerated batch operations if GPU is enabled
+    if GPUConfig.is_enabled():
+        print(f"  Retrieving neighbors using GPU...")
+        # Transfer sketches to GPU
+        sketch_train_gpu = to_gpu(sketch_train)
+        sketch_query_gpu = to_gpu(sketch_query)
+        
+        # Compute similarity matrix using batch operations
+        if similarity_score == 'inner_product':
+            sim_matrix = batch_inner_product(sketch_query_gpu, sketch_train_gpu)
+        elif similarity_score == 'cosine_similarity':
+            sim_matrix = batch_cosine_similarity(sketch_query_gpu, sketch_train_gpu)
+        elif similarity_score == 'jaccard_similarity':
+            sim_matrix = batch_jaccard_similarity(sketch_query_gpu, sketch_train_gpu)
+        else:
+            raise ValueError(f"Unknown similarity_score: {similarity_score}")
+        
+        # Transfer back to CPU for neighbor extraction
+        sim_matrix_cpu = to_cpu(sim_matrix)
+        
+        # Extract neighbors above threshold
+        retrieved = []
+        for i in range(len(X_query)):
+            neighbors = np.where(sim_matrix_cpu[i] >= threshold)[0].tolist()
+            retrieved.append(neighbors)
+    else:
+        # Fall back to CPU sequential processing
+        estimator = get_estimator(model, algo_name, similarity_score)
+        
+        print(f"  Retrieving neighbors...")
+        retrieved = []
+        for i in tqdm(range(len(X_query)), desc="Queries", leave=False):
+            neighbors = []
+            for j in range(len(X_train)):
+                sim = estimator(sketch_query[i], sketch_train[j])
+                if sim >= threshold:
+                    neighbors.append(j)
+            retrieved.append(neighbors)
     
     return retrieved
 
