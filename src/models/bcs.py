@@ -78,14 +78,16 @@ class BinaryCompressionSchema(SketchModel):
     def estimate_jaccard_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
         Estimates Jaccard similarity: Intersection / Union
-        Union = Hamming + Intersection
+        Union = |A| + |B| - Intersection
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
         est_ip = self.estimate_inner_product(sketch1, sketch2)
-        est_hamming = self.estimate_hamming_distance(sketch1, sketch2)
         
-        union = est_hamming + est_ip
+        # For binary vectors: Union = |A| + |B| - Intersection
+        cardinality1 = np.count_nonzero(sketch1)
+        cardinality2 = np.count_nonzero(sketch2)
+        union = cardinality1 + cardinality2 - est_ip
         
         if union == 0:
             return 0.0
