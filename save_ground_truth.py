@@ -12,7 +12,8 @@ import numpy as np
 from itertools import combinations
 from tqdm import tqdm
 
-from src import cosine_similarity, jaccard_similarity, inner_product
+from src import batch_inner_product, batch_cosine_similarity, batch_jaccard_similarity
+from src.gpu_utils import to_gpu, to_cpu, get_array_module
 
 
 def _get_similarity_function(similarity_score: str):
@@ -39,35 +40,55 @@ def _get_similarity_function(similarity_score: str):
 
 def calculate_experiment1_ground_truth(
     X_dense: np.ndarray,
-    similarity_score: str
+    similarity_score: str,
+    use_gpu: bool = False
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Calculate ground truth similarities for all pairs (Experiment 1).
-    Uses similarity functions from src.similarity_scores module.
+    Uses vectorized GPU operations for maximum performance.
     
     Args:
         X_dense: Dense binary matrix (n_samples, n_features)
         similarity_score: Similarity metric ('cosine_similarity', 'jaccard_similarity', 'inner_product')
+        use_gpu: Whether to use GPU for computations
         
     Returns:
         Tuple of (ground_truth_values, pair_indices)
     """
+    # Transfer to GPU if requested
+    if use_gpu:
+        print("Transferring data to GPU...")
+        X_dense = to_gpu(X_dense)
+        print("✓ Data transferred to GPU")
+    
+    xp = get_array_module(X_dense)
     n_samples = X_dense.shape[0]
     pairs = list(combinations(range(n_samples), 2))
     n_pairs = len(pairs)
     
-    print(f"Calculating Ground Truth ({similarity_score}) for {n_pairs} pairs...")
+    device = "GPU" if use_gpu else "CPU"
+    print(f"Calculating Ground Truth ({similarity_score}) for {n_pairs} pairs on {device}...")
     
-    # Get similarity function
-    similarity_func = _get_similarity_function(similarity_score)
+    # Compute full similarity matrix using vectorized batch operations
+    print("Computing similarity matrix with vectorized operations...")
+    if similarity_score == 'inner_product':
+        sim_matrix = batch_inner_product(X_dense, X_dense)
+    elif similarity_score == 'cosine_similarity':
+        sim_matrix = batch_cosine_similarity(X_dense, X_dense)
+    elif similarity_score == 'jaccard_similarity':
+        sim_matrix = batch_jaccard_similarity(X_dense, X_dense)
+    else:
+        raise ValueError(f"Unknown similarity score: {similarity_score}")
     
-    # Compute similarities for all pairs
-    ground_truth = []
-    for i, j in tqdm(pairs, desc="Computing ground truth", unit="pair"):
-        val = similarity_func(X_dense[i], X_dense[j])
-        ground_truth.append(val)
+    # Extract upper triangle (all pairs)
+    print("Extracting pair similarities...")
+    pairs_array = xp.array(pairs)
+    ground_truth = sim_matrix[pairs_array[:, 0], pairs_array[:, 1]]
     
-    return np.array(ground_truth), np.array(pairs)
+    # Transfer to CPU
+    ground_truth = to_cpu(ground_truth)
+    
+    return ground_truth, np.array(pairs)
 
 
 def save_experiment1_ground_truth(
@@ -127,7 +148,8 @@ def save_experiment1_ground_truth(
 def calculate_and_save_experiment1_ground_truth(
     data_path: str,
     similarity_score: str,
-    output_path: str = None
+    output_path: str = None,
+    use_gpu: bool = False
 ) -> str:
     """
     Calculate Experiment 1 ground truth similarities and save to JSON.
@@ -136,6 +158,7 @@ def calculate_and_save_experiment1_ground_truth(
         data_path: Path to .npy file containing binary matrix
         similarity_score: Similarity metric ('cosine_similarity', 'jaccard_similarity', 'inner_product')
         output_path: Output JSON file path (default: auto-generated)
+        use_gpu: Whether to use GPU for computations
         
     Returns:
         Path to saved JSON file
@@ -146,7 +169,7 @@ def calculate_and_save_experiment1_ground_truth(
     print(f"  Matrix Shape: {X_dense.shape}")
     
     # Calculate ground truth
-    ground_truth, pairs = calculate_experiment1_ground_truth(X_dense, similarity_score)
+    ground_truth, pairs = calculate_experiment1_ground_truth(X_dense, similarity_score, use_gpu)
     
     # Save to file
     return save_experiment1_ground_truth(data_path, similarity_score, ground_truth, pairs, output_path)
@@ -181,43 +204,55 @@ def load_experiment1_ground_truth(json_path: str):
 def calculate_experiment2_ground_truth(
     X_train: np.ndarray,
     X_query: np.ndarray,
-    similarity_score: str
+    similarity_score: str,
+    use_gpu: bool = False
 ) -> np.ndarray:
     """
     Calculate ground truth similarities for Experiment 2 (train/query split).
     Computes similarity matrix between query and training vectors.
-    Uses similarity functions from src.similarity_scores module.
+    Uses vectorized GPU operations for maximum performance.
     
     Args:
         X_train: Training vectors (n_train, n_features)
         X_query: Query vectors (n_query, n_features)
         similarity_score: Similarity metric
+        use_gpu: Whether to use GPU for computations
         
     Returns:
         Similarity matrix (n_query, n_train)
     """
-    print(f"Calculating Experiment 2 Ground Truth ({similarity_score})...")
+    # Transfer to GPU if requested
+    if use_gpu:
+        print("Transferring data to GPU...")
+        X_train = to_gpu(X_train)
+        X_query = to_gpu(X_query)
+        print("✓ Data transferred to GPU")
+    
+    device = "GPU" if use_gpu else "CPU"
+    print(f"Calculating Experiment 2 Ground Truth ({similarity_score}) on {device}...")
     print(f"  Training samples: {X_train.shape[0]}")
     print(f"  Query samples: {X_query.shape[0]}")
     
-    # Get similarity function
-    similarity_func = _get_similarity_function(similarity_score)
+    xp = get_array_module(X_train)
     
-    # Compute similarity matrix
-    n_query = len(X_query)
-    n_train = len(X_train)
-    similarities = np.zeros((n_query, n_train))
-    
-    for i in tqdm(range(n_query), desc="Computing similarities"):
-        for j in range(n_train):
-            similarities[i, j] = similarity_func(X_query[i], X_train[j])
-    
-    print(f"  Min similarity: {similarities.min():.6f}")
-    print(f"  Max similarity: {similarities.max():.6f}")
-    print(f"  Mean similarity: {similarities.mean():.6f}")
-    
-    return similarities
-
+    # Compute full similarity matrix using vectorized operations
+    print("Computing similarity matrix with GPU acceleration...")
+    if similarity_score == 'inner_product':
+        # Inner product: Q @ T.T
+        similarities = xp.dot(X_query, X_train.T)
+    elif similarity_score == 'cosine_similarity':
+        # Cosine: (Q @ T.T) / (||Q|| * ||T||.T)
+        query_norms = xp.sqrt(xp.sum(X_query ** 2, axis=1, keepdims=True))
+        train_norms = xp.sqrt(xp.sum(X_train ** 2, axis=1, keepdims=True))
+        query_norms = xp.maximum(query_norms, 1e-10)
+    # Compute full similarity matrix using vectorized batch operations
+    print("Computing similarity matrix with GPU acceleration...")
+    if similarity_score == 'inner_product':
+        similarities = batch_inner_product(X_query, X_train)
+    elif similarity_score == 'cosine_similarity':
+        similarities = batch_cosine_similarity(X_query, X_train)
+    elif similarity_score == 'jaccard_similarity':
+        similarities = batch_jaccard_similarity(X_query, X_train)
 
 def save_experiment2_ground_truth(
     data_path: str,
@@ -282,7 +317,8 @@ def calculate_and_save_experiment2_ground_truth(
     train_ratio: float,
     similarity_score: str,
     seed: int = 42,
-    output_path: str = None
+    output_path: str = None,
+    use_gpu: bool = False
 ) -> str:
     """
     Calculate and save Experiment 2 ground truth.
@@ -293,6 +329,7 @@ def calculate_and_save_experiment2_ground_truth(
         similarity_score: Similarity metric
         seed: Random seed
         output_path: Output JSON file path (default: auto-generated)
+        use_gpu: Whether to use GPU for computations
         
     Returns:
         Path to saved JSON file
@@ -318,7 +355,7 @@ def calculate_and_save_experiment2_ground_truth(
     
     # Calculate ground truth similarities
     similarities = calculate_experiment2_ground_truth(
-        X_train, X_query, similarity_score
+        X_train, X_query, similarity_score, use_gpu
     )
     
     # Save to file
@@ -370,6 +407,11 @@ def main():
         help='Load and display ground truth from existing JSON file'
     )
     
+    parser.add_argument(
+        '--use_gpu', action='store_true',
+        help='Use GPU for computations if available'
+    )
+    
     args = parser.parse_args()
     
     if args.load:
@@ -380,7 +422,8 @@ def main():
         calculate_and_save_experiment1_ground_truth(
             args.data_path,
             args.similarity_score,
-            args.output
+            args.output,
+            args.use_gpu
         )
     elif args.experiment == 2:
         # Calculate and save Experiment 2 ground truth
@@ -389,7 +432,8 @@ def main():
             args.train_ratio,
             args.similarity_score,
             args.seed,
-            args.output
+            args.output,
+            args.use_gpu
         )
 
 
