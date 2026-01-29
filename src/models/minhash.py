@@ -125,3 +125,74 @@ class MinHash(SketchModel):
         jaccard_sims = matches / k
         
         return to_cpu(jaccard_sims).astype(np.float32)
+    
+    def estimate_cosine_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
+        """
+        Estimates cosine similarity between two MinHash sketches.
+        
+        Args:
+            sketch1: First MinHash sketch.
+            sketch2: Second MinHash sketch.
+        
+        Returns:
+            Estimated cosine similarity (between -1 and 1).
+        """
+        if sketch1.shape != sketch2.shape:
+            raise ValueError("Sketches must have the same shape for cosine similarity estimation.")
+        
+        xp = get_array_module(sketch1)
+        
+        sig1 = sketch1.ravel()
+        sig2 = sketch2.ravel()
+        
+        # Compute dot product
+        dot_product = xp.sum(sig1 * sig2)
+        
+        # Compute norms
+        norm1 = xp.sqrt(xp.sum(sig1 ** 2))
+        norm2 = xp.sqrt(xp.sum(sig2 ** 2))
+        
+        # Avoid division by zero
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        cosine_sim = dot_product / (norm1 * norm2)
+        
+        # Convert to Python float (handles both CPU and GPU)
+        return float(to_cpu(cosine_sim))
+    
+    def estimate_cosine_similarity_batch(self, sketches: np.ndarray, pairs: list) -> np.ndarray:
+        """
+        Estimates cosine similarities for multiple pairs efficiently using GPU vectorization.
+        
+        Args:
+            sketches: Array of sketches (n_samples, sketch_dim) - can be on GPU or CPU
+            pairs: List of (i, j) tuples indicating which pairs to estimate
+            
+        Returns:
+            Array of estimated cosine similarities for each pair
+        """
+        xp = get_array_module(sketches)
+        
+        # Extract indices
+        indices_i = xp.array([i for i, j in pairs], dtype=xp.int32)
+        indices_j = xp.array([j for i, j in pairs], dtype=xp.int32)
+        
+        # Batch gather sketches
+        sketches_i = sketches[indices_i]
+        sketches_j = sketches[indices_j]
+        
+        # Compute dot products
+        dot_products = xp.sum(sketches_i * sketches_j, axis=1)
+        
+        # Compute norms
+        norms_i = xp.sqrt(xp.sum(sketches_i ** 2, axis=1))
+        norms_j = xp.sqrt(xp.sum(sketches_j ** 2, axis=1))
+        
+        # Avoid division by zero
+        denominators = norms_i * norms_j
+        denominators = xp.maximum(denominators, 1e-10)
+        
+        cosine_sims = dot_products / denominators
+        
+        return to_cpu(cosine_sims).astype(np.float32)
