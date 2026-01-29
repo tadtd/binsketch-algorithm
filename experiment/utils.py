@@ -654,7 +654,6 @@ def compute_retrieval_metrics(
     Returns:
         Dictionary with mean and std of the metric
     """
-    n_queries = len(ground_truth)
     scores = []
     
     for gt, ret in zip(ground_truth, retrieved):

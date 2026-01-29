@@ -130,13 +130,6 @@ def run_experiment1(
                 continue
         
         if results:
-            # Save individual plot
-            filepath = save_plot(
-                compression_lengths, results, similarity_score, eval_metric, threshold, 
-                "results/experiment1", dataset_name
-            )
-            print(f"  Saved: {filepath}")
-            
             # Store results for combined plot
             all_results[threshold] = results
         else:

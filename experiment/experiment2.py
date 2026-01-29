@@ -135,9 +135,13 @@ def run_experiment2(
             neighbors = np.where(similarities[i] >= threshold)[0].tolist()
             ground_truth.append(neighbors)
         
+        avg_neighbors = np.mean([len(n) for n in ground_truth])
+        total_pairs = sum([len(n) for n in ground_truth])
+        
         threshold_results = {
             'threshold': threshold,
-            'avg_neighbors': np.mean([len(n) for n in ground_truth]),
+            'avg_neighbors': avg_neighbors,
+            'total_pairs': total_pairs,
             'algorithms': {}
         }
         
