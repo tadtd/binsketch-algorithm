@@ -264,7 +264,7 @@ def main():
     
     # Configure GPU
     if args.use_gpu:
-        GPUConfig.enable()
+        GPUConfig.enable_gpu()
     
     # Find max inner product if requested
     if args.find_max_inner_product:
