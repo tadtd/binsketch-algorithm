@@ -5,6 +5,7 @@ from ..gpu_utils import (
     get_array_module, to_gpu, to_cpu,
     create_random_state, GPUConfig
 )
+from tqdm import tqdm
 
 class SimHash(SketchModel):
     def __init__(self, seed: int = 42):
@@ -56,9 +57,13 @@ class SimHash(SketchModel):
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Hamming distance estimation.")
         
+        xp = get_array_module(sketch1)
+        
         # Efficient hamming using XOR
-        diff = np.bitwise_xor(sketch1, sketch2)
-        return float(np.count_nonzero(diff))
+        diff = xp.bitwise_xor(sketch1, sketch2)
+        result = xp.count_nonzero(diff)
+        
+        return float(to_cpu(result))
 
     def estimate_cosine_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
@@ -66,8 +71,12 @@ class SimHash(SketchModel):
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Cosine similarity estimation.")
+        
+        xp = get_array_module(sketch1)
+        
         n = sketch1.shape[-1]
         Bin_Ham_est = self.estimate_hamming_distance(sketch1, sketch2)
         ratio = Bin_Ham_est / n
-        Bin_Cosine_est = np.cos(np.pi * ratio)
-        return float(Bin_Cosine_est)
+        Bin_Cosine_est = xp.cos(xp.pi * ratio) if hasattr(xp, 'pi') else np.cos(np.pi * ratio)
+        
+        return float(to_cpu(Bin_Cosine_est))

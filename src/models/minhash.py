@@ -2,8 +2,9 @@ from .base import SketchModel
 import numpy as np
 from scipy.sparse import csr_matrix
 from ..gpu_utils import (
-    get_array_module, to_cpu, create_random_state, GPUConfig, zeros
+    get_array_module, to_cpu, to_gpu, create_random_state, GPUConfig, zeros
 )
+from tqdm import tqdm
 
 class MinHash(SketchModel):
     def __init__(self, seed: int = 42):
@@ -80,10 +81,13 @@ class MinHash(SketchModel):
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
         
+        xp = get_array_module(sketch1)
+        
         sig1 = sketch1.ravel()
         sig2 = sketch2.ravel()
         
-        matches = np.sum(sig1 == sig2)
+        matches = xp.sum(sig1 == sig2)
         jaccard_sim = matches / len(sig1)
         
-        return float(jaccard_sim)
+        # Convert to Python float (handles both CPU and GPU)
+        return float(to_cpu(jaccard_sim))

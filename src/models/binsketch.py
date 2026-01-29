@@ -79,21 +79,24 @@ class BinSketch(SketchModel):
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Inner Product estimation.")
+        
+        xp = get_array_module(sketch1)
+        
         n = sketch1.shape[-1]
         spar_est_1 = self._estimate_sparsity(sketch1)
         spar_est_2 = self._estimate_sparsity(sketch2)
         
         # IP is simpler on dense arrays: element-wise mult and sum
-        IP = int(np.sum(sketch1 * sketch2))
+        IP = int(to_cpu(xp.sum(sketch1 * sketch2)))
         
         val = (1-1/n)**spar_est_1 + (1-1/n)**spar_est_2 - 1 + IP/n
         if val > 0:
-            Bin_IP_est = np.round(spar_est_1 + spar_est_2 - (np.log(val)/np.log(1-1/n)))
+            Bin_IP_est = xp.round(spar_est_1 + spar_est_2 - (xp.log(val)/xp.log(1-1/n)))
             if Bin_IP_est < 0:
                 Bin_IP_est = IP
         else:
             Bin_IP_est = IP
-        return float(Bin_IP_est)
+        return float(to_cpu(Bin_IP_est))
     
     def estimate_hamming_distance(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
@@ -127,14 +130,16 @@ class BinSketch(SketchModel):
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Cosine similarity estimation.")
+        xp = get_array_module(sketch1)
+        
         spar_est_1 = self._estimate_sparsity(sketch1)
         spar_est_2 = self._estimate_sparsity(sketch2)
         est_ip = self.estimate_inner_product(sketch1, sketch2)
         
-        denom = np.sqrt(spar_est_1) * np.sqrt(spar_est_2)
+        denom = xp.sqrt(spar_est_1) * xp.sqrt(spar_est_2)
         if denom == 0:
             return 0.0
             
         Cosine_est = est_ip / denom
-        return float(Cosine_est)
+        return float(to_cpu(Cosine_est))
     

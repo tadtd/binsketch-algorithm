@@ -57,36 +57,49 @@ class BinaryCompressionSchema(SketchModel):
     def estimate_inner_product(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
         Estimates inner product.
+        Supports both CPU and GPU arrays.
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Inner Product estimation.")
         
+        from ..gpu_utils import get_array_module, to_cpu
+        xp = get_array_module(sketch1)
+        
         # For binary vectors, inner product is sum of AND
-        return float(np.sum(sketch1 * sketch2))
+        result = xp.sum(sketch1 * sketch2)
+        return float(to_cpu(result))
 
     def estimate_hamming_distance(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
         Estimates Hamming distance.
+        Supports both CPU and GPU arrays.
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Hamming distance estimation.")
         
+        from ..gpu_utils import get_array_module, to_cpu
+        xp = get_array_module(sketch1)
+        
         # XOR sum
-        diff = np.bitwise_xor(sketch1, sketch2)
-        return float(np.count_nonzero(diff))
+        diff = xp.bitwise_xor(sketch1, sketch2)
+        result = xp.count_nonzero(diff)
+        return float(to_cpu(result))
 
     def estimate_jaccard_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
         Estimates Jaccard similarity: Intersection / Union
-        Union = |A| + |B| - Intersection
+        Jaccard = |A ∩ B| / |A ∪ B| = IP / (|A| + |B| - IP)
+        Supports both CPU and GPU arrays.
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Jaccard similarity estimation.")
-        est_ip = self.estimate_inner_product(sketch1, sketch2)
         
-        # For binary vectors: Union = |A| + |B| - Intersection
-        cardinality1 = np.count_nonzero(sketch1)
-        cardinality2 = np.count_nonzero(sketch2)
+        from ..gpu_utils import get_array_module, to_cpu
+        xp = get_array_module(sketch1)
+        
+        est_ip = self.estimate_inner_product(sketch1, sketch2)
+        cardinality1 = to_cpu(xp.count_nonzero(sketch1))
+        cardinality2 = to_cpu(xp.count_nonzero(sketch2))
         union = cardinality1 + cardinality2 - est_ip
         
         if union == 0:
@@ -97,17 +110,22 @@ class BinaryCompressionSchema(SketchModel):
     def estimate_cosine_similarity(self, sketch1: np.ndarray, sketch2: np.ndarray) -> float:
         """
         Estimates Cosine similarity.
+        Supports both CPU and GPU arrays.
         """
         if sketch1.shape != sketch2.shape:
             raise ValueError("Sketches must have the same shape for Cosine similarity estimation.")
+        
+        from ..gpu_utils import get_array_module, to_cpu
+        xp = get_array_module(sketch1)
         
         est_ip = self.estimate_inner_product(sketch1, sketch2)
         est_sq_norm1 = self.estimate_inner_product(sketch1, sketch1)
         est_sq_norm2 = self.estimate_inner_product(sketch2, sketch2)
         
-        denom = np.sqrt(est_sq_norm1) * np.sqrt(est_sq_norm2)
+        denom = xp.sqrt(est_sq_norm1) * xp.sqrt(est_sq_norm2)
         
         if denom == 0:
             return 0.0
             
-        return est_ip / denom
+        result = est_ip / denom
+        return float(to_cpu(result))

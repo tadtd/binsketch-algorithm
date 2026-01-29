@@ -596,44 +596,46 @@ def compress_and_retrieve(
     sketch_train = model.mapping(X_train_csr, k=k)
     sketch_query = model.mapping(X_query_csr, k=k)
     
-    # Use GPU-accelerated batch operations if GPU is enabled
-    if GPUConfig.is_enabled():
-        print(f"  Retrieving neighbors using GPU...")
-        # Transfer sketches to GPU
-        sketch_train_gpu = to_gpu(sketch_train)
-        sketch_query_gpu = to_gpu(sketch_query)
-        
-        # Compute similarity matrix using batch operations
-        if similarity_score == 'inner_product':
-            sim_matrix = batch_inner_product(sketch_query_gpu, sketch_train_gpu)
-        elif similarity_score == 'cosine_similarity':
-            sim_matrix = batch_cosine_similarity(sketch_query_gpu, sketch_train_gpu)
-        elif similarity_score == 'jaccard_similarity':
-            sim_matrix = batch_jaccard_similarity(sketch_query_gpu, sketch_train_gpu)
-        else:
-            raise ValueError(f"Unknown similarity_score: {similarity_score}")
-        
-        # Transfer back to CPU for neighbor extraction
-        sim_matrix_cpu = to_cpu(sim_matrix)
-        
-        # Extract neighbors above threshold
-        retrieved = []
-        for i in range(len(X_query)):
-            neighbors = np.where(sim_matrix_cpu[i] >= threshold)[0].tolist()
-            retrieved.append(neighbors)
+    # Get the estimator function
+    estimator = get_estimator(model, algo_name, similarity_score)
+    
+    # GPU acceleration: transfer sketches to GPU if enabled
+    use_gpu = GPUConfig.is_enabled()
+    if use_gpu:
+        sketch_train = to_gpu(sketch_train)
+        sketch_query = to_gpu(sketch_query)
+        print(f"  Computing similarities (GPU)...")
     else:
-        # Fall back to CPU sequential processing
-        estimator = get_estimator(model, algo_name, similarity_score)
+        print(f"  Computing similarities...")
+    
+    # Compute similarity matrix using estimator
+    n_query = len(sketch_query)
+    n_train = len(sketch_train)
+    
+    if use_gpu:
+        # GPU
+        xp = get_array_module(sketch_train)
+        similarity_matrix = xp.zeros((n_query, n_train), dtype=xp.float32)
         
-        print(f"  Retrieving neighbors...")
-        retrieved = []
-        for i in tqdm(range(len(X_query)), desc="Queries", leave=False):
-            neighbors = []
-            for j in range(len(X_train)):
-                sim = estimator(sketch_query[i], sketch_train[j])
-                if sim >= threshold:
-                    neighbors.append(j)
-            retrieved.append(neighbors)
+        for i in tqdm(range(n_query), desc="Queries", leave=False):
+            for j in range(n_train):
+                similarity_matrix[i, j] = estimator(sketch_query[i], sketch_train[j])
+        
+        similarity_matrix = to_cpu(similarity_matrix)
+    else:
+        # CPU
+        similarity_matrix = np.zeros((n_query, n_train))
+        
+        for i in tqdm(range(n_query), desc="Queries", leave=False):
+            for j in range(n_train):
+                similarity_matrix[i, j] = estimator(sketch_query[i], sketch_train[j])
+    
+    # Extract neighbors above threshold
+    print(f"  Retrieving neighbors...")
+    retrieved = []
+    for i in range(len(X_query)):
+        neighbors = np.where(similarity_matrix[i] >= threshold)[0].tolist()
+        retrieved.append(neighbors)
     
     return retrieved
 
