@@ -142,15 +142,22 @@ class MinHash(SketchModel):
         
         xp = get_array_module(sketch1)
         
-        sig1 = sketch1.ravel()
-        sig2 = sketch2.ravel()
+        sig1 = sketch1.ravel().astype(xp.float64)
+        sig2 = sketch2.ravel().astype(xp.float64)
         
         # Compute dot product
         dot_product = xp.sum(sig1 * sig2)
         
-        # Compute norms
-        norm1 = xp.sqrt(xp.sum(sig1 ** 2))
-        norm2 = xp.sqrt(xp.sum(sig2 ** 2))
+        # Compute norms (using float64 to avoid overflow)
+        norm1_sq = xp.sum(sig1 ** 2)
+        norm2_sq = xp.sum(sig2 ** 2)
+        
+        # Check for invalid values before sqrt
+        if not xp.isfinite(norm1_sq) or not xp.isfinite(norm2_sq) or norm1_sq <= 0 or norm2_sq <= 0:
+            return 0.0
+        
+        norm1 = xp.sqrt(norm1_sq)
+        norm2 = xp.sqrt(norm2_sq)
         
         # Avoid division by zero
         if norm1 == 0 or norm2 == 0:
