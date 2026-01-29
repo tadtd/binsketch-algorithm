@@ -16,7 +16,7 @@ from src.models.bcs import BinarySchemaCompression
 from src.models.minhash import MinHash
 from src.models.simhash import SimHash
 from src.similarity_scores import inner_product, hamming_distance, jaccard_similarity, cosine_similarity
-from src.metric import mse, precision, recall, f1_score
+from src.metric import mse, precision_score, recall_score, f1_score
 import time
 import argparse
 import json

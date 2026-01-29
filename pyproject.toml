@@ -13,3 +13,11 @@ dependencies = [
     "ipykernel",
     "matplotlib",
 ]
+
+[project.optional-dependencies]
+gpu = [
+    # For CUDA 11.x, use: cupy-cuda11x
+    # For CUDA 12.x, use: cupy-cuda12x
+    # Choose based on your NVIDIA CUDA version
+    "cupy-cuda12x>=12.0.0",  # Default to CUDA 12.x
+]
