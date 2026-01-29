@@ -4,6 +4,8 @@ This module contains all shared utilities for both Experiment 1 and Experiment 2
 All experiment-related functions have been moved here from src.utils and experiment2.py.
 """
 import os
+import json
+import math
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Callable
 import numpy as np
@@ -16,6 +18,9 @@ from src.similarity_scores import cosine_similarity, jaccard_similarity, inner_p
 from src.similarity_scores import batch_inner_product, batch_cosine_similarity, batch_jaccard_similarity
 from src.gpu_utils import GPUConfig, to_gpu, to_cpu, get_array_module
 
+# ============================================================================
+# Experiment 1 Utilities
+# ============================================================================
 
 def load_data(data_path: str) -> Tuple[np.ndarray, csr_matrix]:
     """
@@ -27,7 +32,7 @@ def load_data(data_path: str) -> Tuple[np.ndarray, csr_matrix]:
     Returns:
         Tuple of (dense_matrix, sparse_matrix)
     """
-    if not os.path.exists(data_path):
+    if not Path(data_path).exists():
         raise FileNotFoundError(f"Data file not found: {data_path}")
     
     print(f"Loading matrix from {data_path}...")
@@ -364,8 +369,7 @@ def plot_experiment1_results(
     Returns:
         Path to saved plot file
     """
-    import os
-    import math
+    
     
     thresholds = sorted(all_results.keys(), reverse=True)
     n_thresholds = len(thresholds)
@@ -585,7 +589,6 @@ def compress_and_retrieve(
     Returns:
         List of retrieved neighbor lists for each query point
     """
-    from scipy.sparse import csr_matrix
     
     # Convert to sparse if needed
     X_train_csr = csr_matrix(X_train) if not isinstance(X_train, csr_matrix) else X_train
@@ -766,8 +769,6 @@ def save_experiment2_ground_truth(
     Returns:
         Path to saved JSON file
     """
-    import json
-    import os
     
     dataset_name = Path(data_path).stem.replace('_binary', '')
     
@@ -819,8 +820,6 @@ def load_experiment2_ground_truth(
     Returns:
         Dictionary with ground truth data or None if file doesn't exist
     """
-    import json
-    import os
     
     dataset_name = Path(data_path).stem.replace('_binary', '')
     

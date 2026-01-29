@@ -4,17 +4,16 @@ This experiment evaluates how accurately different sketching algorithms
 can estimate pairwise similarities compared to ground truth values.
 """
 import argparse
+import json
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import numpy as np
+from itertools import combinations
+from tqdm import tqdm
 
 from src import BinSketch, BinaryCompressionSchema, MinHash, SimHash
-from src.gpu_utils import GPUConfig
-from save_ground_truth import (
-    calculate_experiment1_ground_truth,
-    load_experiment1_ground_truth,
-    save_experiment1_ground_truth
-)
+from src import batch_inner_product, batch_cosine_similarity, batch_jaccard_similarity
+from src.gpu_utils import GPUConfig, to_gpu, to_cpu, get_array_module
 
 # Import from local utils (works both as module and standalone)
 
@@ -35,6 +34,197 @@ ALGO_MAP = {
 # Default compression lengths
 DEFAULT_COMPRESSION_LENGTHS = [100, 500, 1000, 2000, 3000, 4000, 5000]
 
+
+# ============================================================================
+# Ground Truth Utility Functions
+# ============================================================================
+
+def calculate_experiment1_ground_truth(
+    X_dense: np.ndarray,
+    similarity_score: str,
+    use_gpu: bool = False,
+    chunk_size: int = 500
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Calculate ground truth similarities for all pairs (Experiment 1).
+    Uses vectorized GPU operations with chunked processing for progress tracking.
+    
+    Args:
+        X_dense: Dense binary matrix (n_samples, n_features)
+        similarity_score: Similarity metric ('cosine_similarity', 'jaccard_similarity', 'inner_product')
+        use_gpu: Whether to use GPU for computations
+        chunk_size: Number of rows to process per chunk (for progress tracking)
+        
+    Returns:
+        Tuple of (ground_truth_values, pair_indices)
+    """
+    # Transfer to GPU if requested
+    if use_gpu:
+        print("Transferring data to GPU...")
+        X_dense = to_gpu(X_dense)
+        xp = get_array_module(X_dense)
+        print(f"✓ Data transferred to GPU (using {xp.__name__})")
+    else:
+        xp = get_array_module(X_dense)
+    
+    # Ensure proper dtype to avoid overflow (CRITICAL for inner product!)
+    X_dense = X_dense.astype(xp.float32)
+    
+    n_samples = X_dense.shape[0]
+    pairs = list(combinations(range(n_samples), 2))
+    n_pairs = len(pairs)
+    
+    device = "GPU" if use_gpu else "CPU"
+    print(f"Calculating Ground Truth ({similarity_score}) for {n_pairs} pairs...")
+    if use_gpu:
+        print(f"  Using GPU-accelerated batch computation...")
+    
+    # Compute similarity matrix in chunks with progress bar
+    n_chunks = (n_samples + chunk_size - 1) // chunk_size
+    sim_matrix = xp.zeros((n_samples, n_samples), dtype=xp.float32)
+    
+    with tqdm(total=n_chunks, desc="Computing ground truth", unit="batch", 
+              bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+        for i in range(n_chunks):
+            start_idx = i * chunk_size
+            end_idx = min((i + 1) * chunk_size, n_samples)
+            chunk = X_dense[start_idx:end_idx]
+            
+            # Compute similarity for this chunk against all samples
+            if similarity_score == 'inner_product':
+                sim_matrix[start_idx:end_idx] = batch_inner_product(chunk, X_dense)
+            elif similarity_score == 'cosine_similarity':
+                sim_matrix[start_idx:end_idx] = batch_cosine_similarity(chunk, X_dense)
+            elif similarity_score == 'jaccard_similarity':
+                sim_matrix[start_idx:end_idx] = batch_jaccard_similarity(chunk, X_dense)
+            else:
+                raise ValueError(f"Unknown similarity score: {similarity_score}")
+            
+            pbar.update(1)
+    
+    # Extract upper triangle (all pairs)
+    print("Extracting pair similarities...")
+    pairs_array = xp.array(pairs)
+    ground_truth = sim_matrix[pairs_array[:, 0], pairs_array[:, 1]]
+    
+    # Transfer to CPU
+    ground_truth = to_cpu(ground_truth)
+    
+    return ground_truth, np.array(pairs)
+
+
+def save_experiment1_ground_truth(
+    data_path: str,
+    similarity_score: str,
+    ground_truth: np.ndarray,
+    pairs: np.ndarray,
+    output_path: Optional[str] = None
+) -> str:
+    """Save Experiment 1 ground truth data to JSON file.
+    
+    Args:
+        data_path: Path to original data file
+        similarity_score: Similarity metric used
+        ground_truth: Ground truth values array
+        pairs: Pairs array
+        output_path: Output JSON file path (default: auto-generated)
+        
+    Returns:
+        Path to saved JSON file
+    """
+    # Load data for metadata
+    X_dense = np.load(data_path)
+    n_samples, n_features = X_dense.shape
+    n_pairs = len(pairs)
+    
+    dataset_name = Path(data_path).stem.replace('_binary', '')
+    
+    # Generate output path if not provided
+    if output_path is None:
+        filename = f"ground_truth_exp1_{dataset_name}_{similarity_score}.json"
+    else:
+        # Replace template placeholders if present
+        filename = output_path.replace('{DATASET}', dataset_name).replace('{SIMILARITY_SCORE}', similarity_score).replace('{SIMILARITY}', similarity_score)
+    
+    # Always place in experiment/ground_truth/ directory
+    filepath = f"experiment/ground_truth/{filename}"
+    
+    # Prepare data for JSON
+    data_to_save = {
+        "data_path": data_path,
+        "similarity_score": similarity_score,
+        "n_samples": int(n_samples),
+        "n_features": int(n_features),
+        "n_pairs": int(n_pairs),
+        "pairs": pairs.tolist(),
+        "ground_truth": ground_truth.tolist()
+    }
+    
+    # Create parent directory if needed
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save to JSON
+    print(f"\nSaving ground truth to {filepath}...")
+    with open(filepath, 'w') as f:
+        json.dump(data_to_save, f, indent=2)
+    
+    print(f"✓ Saved {n_pairs} ground truth values")
+    print(f"  Min similarity: {ground_truth.min():.6f}")
+    print(f"  Max similarity: {ground_truth.max():.6f}")
+    print(f"  Mean similarity: {ground_truth.mean():.6f}")
+    
+    return filepath
+
+
+def load_experiment1_ground_truth(
+    data_path: str,
+    similarity_score: str,
+    ground_truth_path: Optional[str] = None
+) -> Optional[dict]:
+    """Load Experiment 1 ground truth from JSON file if it exists.
+    
+    Args:
+        data_path: Original data path
+        similarity_score: Similarity metric name
+        ground_truth_path: Path to ground truth JSON file (default: auto-generated)
+        
+    Returns:
+        dict with keys: data_path, similarity_score, n_samples, n_features, n_pairs, pairs, ground_truth
+        or None if file doesn't exist
+    """
+    dataset_name = Path(data_path).stem.replace('_binary', '')
+    
+    # Generate filepath if not provided
+    if ground_truth_path is None:
+        filename = f"ground_truth_exp1_{dataset_name}_{similarity_score}.json"
+    else:
+        # Replace template placeholders if present
+        filename = ground_truth_path.replace('{DATASET}', dataset_name).replace('{SIMILARITY_SCORE}', similarity_score).replace('{SIMILARITY}', similarity_score)
+    
+    # Always place in experiment/ground_truth/ directory
+    filepath = f"experiment/ground_truth/{filename}"
+    
+    if not Path(filepath).exists():
+        return None
+    
+    print(f"Loading ground truth from {filepath}...")
+    with open(filepath, 'r') as f:
+        data = json.load(f)
+    
+    # Convert back to numpy arrays
+    data['pairs'] = np.array(data['pairs'])
+    data['ground_truth'] = np.array(data['ground_truth'])
+    
+    print(f"✓ Loaded {data['n_pairs']} ground truth values")
+    print(f"  Dataset: {data['data_path']}")
+    print(f"  Similarity: {data['similarity_score']}")
+    print(f"  Shape: ({data['n_samples']}, {data['n_features']})")
+    
+    return data
+
+
+# ============================================================================
+# Main Experiment Function
+# ============================================================================
 
 def run_experiment1(
     data_path: str,
@@ -72,27 +262,21 @@ def run_experiment1(
     all_results = {}
     
     # Load or calculate ground truth
-    if ground_truth_path is not None:
-        # Replace template placeholders if present
-        filename = ground_truth_path.replace('{DATASET}', dataset_name).replace('{SIMILARITY_SCORE}', similarity_score).replace('{SIMILARITY}', similarity_score)
-        # Always place in experiment/ground_truth/ directory
-        ground_truth_file = Path(f"experiment/ground_truth/{filename}")
-    else:
-        ground_truth_file = Path("experiment/ground_truth") / f"ground_truth_{dataset_name}_{similarity_score}.json"
+    gt_data = load_experiment1_ground_truth(data_path, similarity_score, ground_truth_path)
     
-    if ground_truth_file.exists():
-        gt_data = load_experiment1_ground_truth(str(ground_truth_file))
+    if gt_data is not None:
         ground_truth = gt_data['ground_truth']
         pair_indices = gt_data['pairs']
-        print(f"Loaded {len(ground_truth)} ground truth pairs from cache")
+        print(f"Using cached ground truth")
     else:
         print(f"Calculating ground truth (this may take a while)...")
         ground_truth, pair_indices = calculate_experiment1_ground_truth(
             X_dense, similarity_score, use_gpu=GPUConfig.is_enabled()
         )
-        print(f"Saving ground truth to {ground_truth_file}...")
-        save_experiment1_ground_truth(data_path, similarity_score, ground_truth, pair_indices, str(ground_truth_file))
-        print(f"Saved {len(ground_truth)} ground truth pairs")
+        save_experiment1_ground_truth(
+            data_path, similarity_score, ground_truth, pair_indices,
+            output_path=ground_truth_path
+        )
     
     # Run experiments for each threshold
     for threshold in thresholds:
