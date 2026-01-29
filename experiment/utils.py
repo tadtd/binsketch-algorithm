@@ -3,10 +3,16 @@
 This module contains all shared utilities for both Experiment 1 and Experiment 2.
 All experiment-related functions have been moved here from src.utils and experiment2.py.
 """
+import sys
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 import os
 import json
 import math
-from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Callable
 import numpy as np
 import matplotlib.pyplot as plt
