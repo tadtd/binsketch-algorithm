@@ -211,3 +211,74 @@ def arange(*args, use_gpu=None, dtype=None):
         result = result.astype(dtype)
     
     return result
+
+
+def batch_gather(arr, indices, use_gpu=None):
+    """
+    Efficiently gather rows from array based on indices.
+    
+    Args:
+        arr: Array to gather from (n_samples, features)
+        indices: Indices to gather (n_pairs,)
+        use_gpu: Whether to use GPU (None = auto-detect)
+    
+    Returns:
+        Gathered array (n_pairs, features)
+    """
+    xp = get_array_module(arr)
+    return arr[indices]
+
+
+def ensure_gpu(arr):
+    """
+    Ensure array is on GPU if GPU is enabled.
+    
+    Args:
+        arr: Input array (can be CPU or GPU)
+    
+    Returns:
+        GPU array if GPU is enabled, otherwise unchanged
+    """
+    if GPUConfig.is_enabled() and GPU_AVAILABLE:
+        xp = get_array_module(arr)
+        if xp.__name__ == 'numpy':
+            return to_gpu(arr)
+    return arr
+
+
+def compute_pairwise_distances(sketches, metric='euclidean', chunk_size=1000):
+    """
+    Compute pairwise distances efficiently using GPU.
+    
+    Args:
+        sketches: Array of sketches (n_samples, sketch_dim)
+        metric: Distance metric ('euclidean', 'hamming', etc.)
+        chunk_size: Process in chunks to manage memory
+    
+    Returns:
+        Distance matrix (n_samples, n_samples)
+    """
+    xp = get_array_module(sketches)
+    n_samples = sketches.shape[0]
+    
+    if metric == 'hamming':
+        # For binary sketches, hamming = XOR then count
+        # Process in chunks to avoid memory issues
+        distances = xp.zeros((n_samples, n_samples), dtype=xp.float32)
+        
+        for i in range(0, n_samples, chunk_size):
+            end_i = min(i + chunk_size, n_samples)
+            chunk_i = sketches[i:end_i]
+            
+            for j in range(0, n_samples, chunk_size):
+                end_j = min(j + chunk_size, n_samples)
+                chunk_j = sketches[j:end_j]
+                
+                # Broadcasting: (chunk_i_size, 1, dim) vs (1, chunk_j_size, dim)
+                diff = chunk_i[:, xp.newaxis, :] != chunk_j[xp.newaxis, :, :]
+                distances[i:end_i, j:end_j] = xp.sum(diff, axis=2)
+        
+        return distances
+    else:
+        raise NotImplementedError(f"Metric {metric} not implemented yet")
+

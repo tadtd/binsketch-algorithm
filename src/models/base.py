@@ -8,6 +8,6 @@ class SketchModel(ABC):
         self.seed = seed
 
     @abstractmethod
-    def mapping(self, X: csr_matrix, k: int) -> np.ndarray:
+    def mapping(self, X: csr_matrix, k: int, return_gpu: bool = False) -> np.ndarray:
         pass
     

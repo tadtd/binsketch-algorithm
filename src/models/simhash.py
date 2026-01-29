@@ -12,12 +12,13 @@ class SimHash(SketchModel):
         super().__init__(seed=seed)
         self.R = None
 
-    def mapping(self, X: csr_matrix, k: int) -> np.ndarray:
+    def mapping(self, X: csr_matrix, k: int, return_gpu: bool = False) -> np.ndarray:
         """
         Projects high-dimensional binary data into a lower-dimensional SimHash sketch.
         Args:
             X: Input sparse matrix (n_samples, n_features).
             k: Target dimension for the sketch.
+            return_gpu: If True and GPU is enabled, return GPU array without transferring to CPU.
         """
         _, n = X.shape
         use_gpu = GPUConfig.is_enabled()
@@ -44,6 +45,10 @@ class SimHash(SketchModel):
             sketch = (predictions >= 0).astype(xp.float32)
         else:
             sketch = (predictions >= 0).astype(np.int8)
+        
+        # Return GPU array if requested, otherwise transfer to CPU
+        if return_gpu and use_gpu:
+            return sketch
         
         result = to_cpu(sketch)
         if use_gpu:
@@ -80,3 +85,62 @@ class SimHash(SketchModel):
         Bin_Cosine_est = xp.cos(xp.pi * ratio) if hasattr(xp, 'pi') else np.cos(np.pi * ratio)
         
         return float(to_cpu(Bin_Cosine_est))
+    
+    def estimate_hamming_distance_batch(self, sketches: np.ndarray, pairs: list) -> np.ndarray:
+        """
+        Estimates Hamming distances for multiple pairs efficiently using GPU vectorization.
+        
+        Args:
+            sketches: Array of sketches (n_samples, sketch_dim) - can be on GPU or CPU
+            pairs: List of (i, j) tuples indicating which pairs to estimate
+            
+        Returns:
+            Array of estimated Hamming distances for each pair
+        """
+        xp = get_array_module(sketches)
+        
+        # Extract indices
+        indices_i = xp.array([i for i, j in pairs], dtype=xp.int32)
+        indices_j = xp.array([j for i, j in pairs], dtype=xp.int32)
+        
+        # Batch gather sketches
+        sketches_i = sketches[indices_i]
+        sketches_j = sketches[indices_j]
+        
+        # Batch XOR and count
+        diff = xp.bitwise_xor(sketches_i.astype(xp.int32), sketches_j.astype(xp.int32))
+        result = xp.count_nonzero(diff, axis=1)
+        
+        return to_cpu(result).astype(np.float32)
+    
+    def estimate_cosine_similarity_batch(self, sketches: np.ndarray, pairs: list) -> np.ndarray:
+        """
+        Estimates cosine similarities for multiple pairs efficiently using GPU vectorization.
+        
+        Args:
+            sketches: Array of sketches (n_samples, sketch_dim) - can be on GPU or CPU
+            pairs: List of (i, j) tuples indicating which pairs to estimate
+            
+        Returns:
+            Array of estimated cosine similarities for each pair
+        """
+        xp = get_array_module(sketches)
+        n = sketches.shape[-1]
+        
+        # Extract indices
+        indices_i = xp.array([i for i, j in pairs], dtype=xp.int32)
+        indices_j = xp.array([j for i, j in pairs], dtype=xp.int32)
+        
+        # Batch gather sketches
+        sketches_i = sketches[indices_i]
+        sketches_j = sketches[indices_j]
+        
+        # Batch Hamming distances
+        diff = xp.bitwise_xor(sketches_i.astype(xp.int32), sketches_j.astype(xp.int32))
+        hamming_dists = xp.count_nonzero(diff, axis=1)
+        
+        # Vectorized cosine estimation
+        ratio = hamming_dists / n
+        cosine_est = xp.cos(xp.pi * ratio) if hasattr(xp, 'pi') else np.cos(np.pi * ratio)
+        
+        return to_cpu(cosine_est).astype(np.float32)

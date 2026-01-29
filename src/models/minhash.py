@@ -13,12 +13,13 @@ class MinHash(SketchModel):
         self.coeffs = None
         self.k = None
 
-    def mapping(self, X: csr_matrix, k: int) -> np.ndarray:
+    def mapping(self, X: csr_matrix, k: int, return_gpu: bool = False) -> np.ndarray:
         """
         Projects high-dimensional binary data into a lower-dimensional MinHash sketch.
         Args:
             X: Input sparse matrix (n_samples, n_features).
             k: Target dimension for the sketch.
+            return_gpu: If True and GPU is enabled, return GPU array without transferring to CPU.
         Returns:
             Sketch matrix where each row contains k MinHash signatures.
         """
@@ -64,6 +65,11 @@ class MinHash(SketchModel):
             sketches.append(min_hashes)
         
         result = xp.array(sketches)
+        
+        # Return GPU array if requested, otherwise transfer to CPU
+        if return_gpu and use_gpu:
+            return result
+        
         result = to_cpu(result)
         if use_gpu:
             result = result.astype(np.int32)
@@ -91,3 +97,31 @@ class MinHash(SketchModel):
         
         # Convert to Python float (handles both CPU and GPU)
         return float(to_cpu(jaccard_sim))
+    
+    def estimate_jaccard_similarity_batch(self, sketches: np.ndarray, pairs: list) -> np.ndarray:
+        """
+        Estimates Jaccard similarities for multiple pairs efficiently using GPU vectorization.
+        
+        Args:
+            sketches: Array of sketches (n_samples, sketch_dim) - can be on GPU or CPU
+            pairs: List of (i, j) tuples indicating which pairs to estimate
+            
+        Returns:
+            Array of estimated Jaccard similarities for each pair
+        """
+        xp = get_array_module(sketches)
+        
+        # Extract indices
+        indices_i = xp.array([i for i, j in pairs], dtype=xp.int32)
+        indices_j = xp.array([j for i, j in pairs], dtype=xp.int32)
+        
+        # Batch gather sketches
+        sketches_i = sketches[indices_i]
+        sketches_j = sketches[indices_j]
+        
+        # Batch comparison
+        matches = xp.sum(sketches_i == sketches_j, axis=1)
+        k = sketches.shape[1]
+        jaccard_sims = matches / k
+        
+        return to_cpu(jaccard_sims).astype(np.float32)
