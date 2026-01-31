@@ -24,7 +24,7 @@ from src.gpu_utils import GPUConfig, to_gpu, to_cpu, get_array_module
 # Import from local utils (works both as module and standalone)
 
 from experiment.utils import (
-    load_data, filter_pairs_by_threshold, run_algorithm_experiment, save_plot,
+    load_data, filter_pairs_by_threshold, get_estimator, get_evaluation_metric,
     plot_experiment1_results
 )
 
@@ -249,6 +249,8 @@ def run_experiment1(
     This experiment compares estimated similarities from compressed representations
     against ground truth similarities from the original data.
     
+    OPTIMIZED: Computes sketches once per (algorithm, k), then evaluates all thresholds.
+    
     Args:
         data_path: Path to data file
         algorithms: List of algorithm names to test
@@ -260,14 +262,19 @@ def run_experiment1(
         seed: Random seed
         ground_truth_path: Optional path to ground truth JSON file
     """
+    from experiment.utils import get_estimator, get_evaluation_metric
+    
     X_dense, X_csr = load_data(data_path)
     
     dataset_name = Path(data_path).stem.replace('_binary', '')
     
-    # Store all results for combined plotting
-    all_results = {}
+    # =========================================================================
+    # Step 1: Load or compute ground truth ONCE
+    # =========================================================================
+    print(f"\n{'='*60}")
+    print(f"Loading/Computing Ground Truth")
+    print(f"{'='*60}")
     
-    # Load or calculate ground truth
     gt_data = load_experiment1_ground_truth(data_path, similarity_score, ground_truth_path)
     
     if gt_data is not None:
@@ -284,53 +291,117 @@ def run_experiment1(
             output_path=ground_truth_path
         )
     
-    # Run experiments for each threshold
+    # =========================================================================
+    # Step 2: Precompute filtered pairs for all thresholds
+    # =========================================================================
+    print(f"\nPrecomputing filtered pairs for {len(thresholds)} thresholds...")
+    filtered_data_per_threshold = {}
     for threshold in thresholds:
-        print(f"\n{'='*40}")
-        print(f"Processing Threshold {threshold}")
-        print(f"{'='*40}")
-        
         gt_filtered, pairs_filtered = filter_pairs_by_threshold(
             ground_truth, pair_indices, threshold
         )
-        
-        if gt_filtered is None:
-            print(f"  No pairs found > {threshold}")
+        if gt_filtered is not None:
+            filtered_data_per_threshold[threshold] = {
+                'gt': gt_filtered,
+                'pairs': pairs_filtered
+            }
+            print(f"  Threshold {threshold}: {len(gt_filtered)} pairs")
+        else:
+            print(f"  Threshold {threshold}: No pairs found")
+    
+    # =========================================================================
+    # Step 3: Find the union of all pairs needed (lowest threshold covers all)
+    # =========================================================================
+    # The lowest threshold will have the most pairs, which is a superset of higher thresholds
+    min_threshold = min(filtered_data_per_threshold.keys())
+    all_needed_pairs = filtered_data_per_threshold[min_threshold]['pairs']
+    print(f"\nTotal unique pairs to estimate: {len(all_needed_pairs)} (from threshold {min_threshold})")
+    
+    # Create mapping from pair to index for fast lookup
+    pair_to_idx = {tuple(p): idx for idx, p in enumerate(all_needed_pairs)}
+    
+    # Initialize results structure
+    # Structure: {threshold: {algo_name: [scores_per_k]}}
+    all_results = {t: {} for t in thresholds if t in filtered_data_per_threshold}
+    
+    # Get evaluation function
+    eval_func = get_evaluation_metric(eval_metric)
+    
+    # =========================================================================
+    # Step 4: For each algorithm and k, compute sketches ONCE, 
+    #         estimate only needed pairs, then evaluate each threshold
+    # =========================================================================
+    for algo_name in algorithms:
+        if algo_name not in ALGO_MAP:
+            print(f"\nUnknown algorithm: {algo_name}, skipping...")
             continue
         
-        print(f"  Valid Pairs: {len(gt_filtered)}")
+        print(f"\n{'='*60}")
+        print(f"Algorithm: {algo_name}")
+        print(f"{'='*60}")
         
-        results = {}
-        for algo_name in algorithms:
-            if algo_name not in ALGO_MAP:
-                print(f"  Unknown algorithm: {algo_name}, skipping...")
-                continue
+        # Initialize results for this algorithm across all thresholds
+        for threshold in all_results:
+            all_results[threshold][algo_name] = []
+        
+        for k in compression_lengths:
+            print(f"\n  Compression length k={k}")
             
-            print(f"  > Running {algo_name}...")
+            # Create model and compute sketches ONCE
             model = ALGO_MAP[algo_name](seed=seed)
             
+            print(f"    Computing sketches...")
             try:
-                scores = run_algorithm_experiment(
-                    model, X_csr, pairs_filtered, gt_filtered,
-                    compression_lengths, algo_name, similarity_score, eval_metric
-                )
-                results[algo_name] = scores
+                X_sketch = model.mapping(X_csr, k=k)
             except Exception as e:
-                print(f"  Error: Failed to run {algo_name}: {e}")
+                print(f"    Error: Failed to compress with k={k}: {e}")
+                # Append NaN for all thresholds
+                for threshold in all_results:
+                    all_results[threshold][algo_name].append(float('nan'))
                 continue
-        
-        if results:
-            # Store results for combined plot
-            all_results[threshold] = results
-        else:
-            print(f"  No results to plot for threshold {threshold}")
+            
+            # Estimate similarities for only the needed pairs ONCE
+            print(f"    Estimating similarities for {len(all_needed_pairs)} pairs...")
+            estimator = get_estimator(model, algo_name, similarity_score)
+            
+            all_estimates = np.zeros(len(all_needed_pairs))
+            for idx, (i, j) in enumerate(tqdm(all_needed_pairs, desc="Estimating", unit="pair", leave=False)):
+                all_estimates[idx] = estimator(X_sketch[i], X_sketch[j])
+            
+            # Now evaluate each threshold using pre-computed estimates
+            for threshold in all_results:
+                if threshold not in filtered_data_per_threshold:
+                    continue
+                
+                gt_filtered = filtered_data_per_threshold[threshold]['gt']
+                pairs_filtered = filtered_data_per_threshold[threshold]['pairs']
+                
+                # Extract estimates for filtered pairs using the mapping
+                est_filtered = np.array([
+                    all_estimates[pair_to_idx[tuple(p)]] 
+                    for p in pairs_filtered
+                ])
+                
+                # Compute evaluation metric
+                score = eval_func(est_filtered, gt_filtered)
+                
+                if eval_metric == 'minus_log_mse' and np.isinf(score):
+                    score = -np.log(1e-10)
+                
+                print(f"    Threshold {threshold}: {eval_metric} = {score:.4f}")
+                all_results[threshold][algo_name].append(score)
     
-    # Create combined multi-threshold plot
+    # =========================================================================
+    # Step 5: Create combined multi-threshold plot
+    # =========================================================================
     if all_results:
-        plot_experiment1_results(
-            all_results, compression_lengths, similarity_score, 
-            eval_metric, dataset_name, "results/experiment1"
-        )
+        # Filter out thresholds with no results
+        valid_results = {t: r for t, r in all_results.items() if r}
+        if valid_results:
+            plot_experiment1_results(
+                valid_results, compression_lengths, similarity_score, 
+                eval_metric, dataset_name, "results/experiment1"
+            )
 
 
 def parse_arguments() -> argparse.Namespace:

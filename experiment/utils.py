@@ -570,6 +570,89 @@ def find_ground_truth_neighbors(
     return neighbors
 
 
+def compute_estimated_similarity_matrix(
+    model,
+    X_train: np.ndarray,
+    X_query: np.ndarray,
+    algo_name: str,
+    similarity_score: str,
+    k: int
+) -> np.ndarray:
+    """
+    Compress training and query data using sketches and compute the estimated
+    similarity matrix between all query-train pairs.
+    
+    This function is optimized for the case where you want to evaluate multiple
+    thresholds on the same similarity matrix without recomputing sketches.
+    
+    Args:
+        model: Model instance with mapping() method
+        X_train: Training vectors (n_train, d)
+        X_query: Query vectors (n_query, d)
+        algo_name: Algorithm name (for getting the right estimator)
+        similarity_score: Type of similarity metric
+        k: Compression length
+        
+    Returns:
+        Estimated similarity matrix (n_query, n_train)
+    """
+    # Convert to sparse if needed
+    X_train_csr = csr_matrix(X_train) if not isinstance(X_train, csr_matrix) else X_train
+    X_query_csr = csr_matrix(X_query) if not isinstance(X_query, csr_matrix) else X_query
+    
+    # GPU acceleration check
+    use_gpu = GPUConfig.is_enabled()
+    
+    # Compress both training and query data using mapping
+    print(f"    Compressing data...")
+    sketch_train = model.mapping(X_train_csr, k=k, return_gpu=use_gpu)
+    sketch_query = model.mapping(X_query_csr, k=k, return_gpu=use_gpu)
+    
+    # Get the estimator function
+    estimator = get_estimator(model, algo_name, similarity_score)
+    batch_estimator_name = f"estimate_{similarity_score}_batch"
+    has_batch_method = hasattr(model, batch_estimator_name)
+    
+    # Compute similarity matrix using estimator
+    n_query = len(sketch_query)
+    n_train = len(sketch_train)
+    
+    if use_gpu:
+        print(f"    Computing similarity matrix (GPU)...")
+    else:
+        print(f"    Computing similarity matrix...")
+    
+    if use_gpu and has_batch_method:
+        # GPU-optimized batch estimation
+        xp = get_array_module(sketch_train)
+        batch_estimator = getattr(model, batch_estimator_name)
+        
+        # Concatenate query and train sketches once for batch processing
+        combined_sketches = xp.vstack([sketch_query, sketch_train])
+        
+        # Process each query with all training samples in batch
+        similarity_rows = []
+        for i in tqdm(range(n_query), desc="Computing similarities", leave=False):
+            pairs = [(i, n_query + j) for j in range(n_train)]
+            row_sims = batch_estimator(combined_sketches, pairs)
+            similarity_rows.append(row_sims)
+        
+        similarity_matrix = np.vstack(similarity_rows)
+    else:
+        # CPU or loop-based estimation
+        xp = get_array_module(sketch_train) if use_gpu else np
+        similarity_matrix = xp.zeros((n_query, n_train), dtype=xp.float32 if use_gpu else np.float64)
+        
+        for i in tqdm(range(n_query), desc="Computing similarities", leave=False):
+            for j in range(n_train):
+                similarity_matrix[i, j] = estimator(sketch_query[i], sketch_train[j])
+        
+        if use_gpu:
+            similarity_matrix = to_cpu(similarity_matrix)
+    
+    return similarity_matrix
+
+
 def compress_and_retrieve(
     model,
     X_train: np.ndarray,

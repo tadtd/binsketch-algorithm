@@ -67,7 +67,16 @@ def recall_score(true_positive: int, false_negative: int) -> float:
     return true_positive / (true_positive + false_negative)
 
 def f1_score(true_positive: int, false_positive: int, false_negative: int) -> float:
-    """Compute the F1 Score given true positives, false positives, and false negatives."""
+    """Compute the F1 Score given true positives, false positives, and false negatives.
+    
+    When there are no ground truth positives (tp + fn = 0) and no false positives,
+    this is considered a perfect match (F1 = 1.0).
+    """
+    # Edge case: no ground truth positives and no retrieved positives
+    # This is a perfect empty match
+    if true_positive == 0 and false_positive == 0 and false_negative == 0:
+        return 1.0
+    
     prec = precision_score(true_positive, false_positive)
     rec = recall_score(true_positive, false_negative)
     if prec + rec == 0:

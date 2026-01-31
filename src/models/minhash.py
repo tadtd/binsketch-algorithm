@@ -130,47 +130,45 @@ class MinHash(SketchModel):
         """
         Estimates cosine similarity between two MinHash sketches.
         
+        For binary vectors, we use the relationship between Jaccard and cosine similarity.
+        MinHash estimates Jaccard similarity J = |A ∩ B| / |A ∪ B|.
+        
+        For binary vectors: cos(a,b) = |A ∩ B| / sqrt(|A| * |B|)
+        
+        We can derive: if J = intersection / union, then:
+        intersection = J * union = J * (|A| + |B| - intersection)
+        So: intersection = J * (|A| + |B|) / (1 + J)
+        
+        However, since MinHash doesn't preserve cardinality information,
+        we use an approximation: cos ≈ 2*J / (1 + J) for roughly equal-sized sets.
+        
         Args:
             sketch1: First MinHash sketch.
             sketch2: Second MinHash sketch.
         
         Returns:
-            Estimated cosine similarity (between -1 and 1).
+            Estimated cosine similarity (between 0 and 1).
         """
-        if sketch1.shape != sketch2.shape:
-            raise ValueError("Sketches must have the same shape for cosine similarity estimation.")
+        # First estimate Jaccard similarity
+        jaccard_sim = self.estimate_jaccard_similarity(sketch1, sketch2)
         
-        xp = get_array_module(sketch1)
-        
-        sig1 = sketch1.ravel().astype(xp.float64)
-        sig2 = sketch2.ravel().astype(xp.float64)
-        
-        # Compute dot product
-        dot_product = xp.sum(sig1 * sig2)
-        
-        # Compute norms (using float64 to avoid overflow)
-        norm1_sq = xp.sum(sig1 ** 2)
-        norm2_sq = xp.sum(sig2 ** 2)
-        
-        # Check for invalid values before sqrt
-        if not xp.isfinite(norm1_sq) or not xp.isfinite(norm2_sq) or norm1_sq <= 0 or norm2_sq <= 0:
+        # Convert Jaccard to cosine approximation
+        # For binary vectors with similar sparsity: cos ≈ 2*J / (1 + J)
+        # This is derived from the relationship between intersection and union
+        if jaccard_sim <= 0:
             return 0.0
         
-        norm1 = xp.sqrt(norm1_sq)
-        norm2 = xp.sqrt(norm2_sq)
+        # More accurate approximation: cos ≈ sqrt(J) for many practical cases
+        # Or use: cos ≈ 2*J / (1+J) which gives a reasonable mapping
+        cosine_sim = 2 * jaccard_sim / (1 + jaccard_sim)
         
-        # Avoid division by zero
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        
-        cosine_sim = dot_product / (norm1 * norm2)
-        
-        # Convert to Python float (handles both CPU and GPU)
-        return float(to_cpu(cosine_sim))
+        return float(cosine_sim)
     
     def estimate_cosine_similarity_batch(self, sketches: np.ndarray, pairs: list) -> np.ndarray:
         """
         Estimates cosine similarities for multiple pairs efficiently using GPU vectorization.
+        
+        Uses the relationship between Jaccard and cosine similarity.
         
         Args:
             sketches: Array of sketches (n_samples, sketch_dim) - can be on GPU or CPU
@@ -181,25 +179,20 @@ class MinHash(SketchModel):
         """
         xp = get_array_module(sketches)
         
-        # Extract indices
-        indices_i = xp.array([i for i, j in pairs], dtype=xp.int32)
-        indices_j = xp.array([j for i, j in pairs], dtype=xp.int32)
+        # First compute Jaccard similarities using existing batch method
+        jaccard_sims = self.estimate_jaccard_similarity_batch(sketches, pairs)
         
-        # Batch gather sketches
-        sketches_i = sketches[indices_i]
-        sketches_j = sketches[indices_j]
+        # Convert to GPU array if needed for vectorized operations
+        use_gpu = GPUConfig.is_enabled()
+        if use_gpu:
+            jaccard_sims_xp = xp.asarray(jaccard_sims)
+        else:
+            jaccard_sims_xp = jaccard_sims
         
-        # Compute dot products
-        dot_products = xp.sum(sketches_i * sketches_j, axis=1)
+        # Convert Jaccard to cosine: cos ≈ 2*J / (1 + J)
+        cosine_sims = 2 * jaccard_sims_xp / (1 + jaccard_sims_xp + 1e-10)
         
-        # Compute norms
-        norms_i = xp.sqrt(xp.sum(sketches_i ** 2, axis=1))
-        norms_j = xp.sqrt(xp.sum(sketches_j ** 2, axis=1))
-        
-        # Avoid division by zero
-        denominators = norms_i * norms_j
-        denominators = xp.maximum(denominators, 1e-10)
-        
-        cosine_sims = dot_products / denominators
+        # Handle edge case where Jaccard is 0
+        cosine_sims = xp.where(jaccard_sims_xp <= 0, 0.0, cosine_sims)
         
         return to_cpu(cosine_sims).astype(np.float32)

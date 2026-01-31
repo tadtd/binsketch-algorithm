@@ -26,7 +26,7 @@ from experiment.utils import (
     load_data,
     split_dataset,
     compute_pairwise_similarities,
-    compress_and_retrieve,
+    compute_estimated_similarity_matrix,
     compute_retrieval_metrics,
     find_max_similarity,
     save_experiment2_ground_truth,
@@ -67,6 +67,9 @@ def run_experiment2(
     training data, and evaluates retrieval performance using precision, recall,
     F1, or accuracy metrics.
     
+    OPTIMIZED: Computes sketches and similarity matrices once per (algorithm, k),
+    then iterates through thresholds to avoid redundant computations.
+    
     Args:
         data_path: Path to data file
         algorithms: List of algorithm names
@@ -82,6 +85,8 @@ def run_experiment2(
     Returns:
         Dictionary of results
     """
+    from experiment.utils import compute_estimated_similarity_matrix
+    
     # Enable GPU if requested
     if GPUConfig.is_enabled():
         print("GPU acceleration enabled")
@@ -94,7 +99,7 @@ def run_experiment2(
         X_dense, train_ratio=train_ratio, seed=seed
     )
     
-    # Store results
+    # Store results - reorganized structure
     results = {
         'data_path': data_path,
         'similarity_score': similarity_score,
@@ -103,80 +108,112 @@ def run_experiment2(
         'n_train': len(train_indices),
         'n_query': len(query_indices),
         'seed': seed,
-        'experiments': []
+        'experiments': []  # Will be populated per threshold
     }
     
-    # Run experiments for each threshold
+    # =========================================================================
+    # Step 1: Load or compute ground truth similarity matrix ONCE
+    # =========================================================================
+    print(f"\n{'='*60}")
+    print(f"Loading/Computing Ground Truth Similarities")
+    print(f"{'='*60}")
+    
+    gt_data = load_experiment2_ground_truth(data_path, similarity_score, ground_truth_path)
+    
+    if gt_data is not None:
+        # Verify indices match
+        if (np.array_equal(gt_data['train_indices'], train_indices) and 
+            np.array_equal(gt_data['query_indices'], query_indices)):
+            gt_similarities = gt_data['similarities']
+            print(f"Using cached ground truth similarity matrix")
+        else:
+            print(f"Cached ground truth indices mismatch, recomputing...")
+            gt_data = None
+    
+    if gt_data is None:
+        gt_similarities = compute_pairwise_similarities(X_query, X_train, similarity_score)
+        # Save for future use
+        save_experiment2_ground_truth(
+            train_indices, query_indices,
+            similarity_score, gt_similarities, data_path,
+            output_path=ground_truth_path
+        )
+    
+    # =========================================================================
+    # Step 2: Precompute ground truth neighbors for all thresholds
+    # =========================================================================
+    print(f"\nPrecomputing ground truth neighbors for {len(thresholds)} thresholds...")
+    ground_truth_per_threshold = {}
     for threshold in thresholds:
-        print(f"\n{'='*60}")
-        print(f"Threshold: {threshold}")
-        print(f"{'='*60}")
-        
-        # Try to load ground truth from cache
-        gt_data = load_experiment2_ground_truth(data_path, similarity_score, ground_truth_path)
-        
-        if gt_data is not None:
-            # Verify indices match
-            if (np.array_equal(gt_data['train_indices'], train_indices) and 
-                np.array_equal(gt_data['query_indices'], query_indices)):
-                similarities = gt_data['similarities']
-                print(f"Using cached ground truth similarity matrix")
-            else:
-                print(f"Cached ground truth indices mismatch, recomputing...")
-                gt_data = None
-        
-        # Compute ground truth if not cached
-        if gt_data is None:
-            similarities = compute_pairwise_similarities(X_query, X_train, similarity_score)
-            # Save for future use
-            save_experiment2_ground_truth(
-                train_indices, query_indices,
-                similarity_score, similarities, data_path,
-                output_path=ground_truth_path
-            )
-        
-        # Find neighbors above threshold from similarity matrix
         ground_truth = []
         for i in range(len(X_query)):
-            neighbors = np.where(similarities[i] >= threshold)[0].tolist()
+            neighbors = np.where(gt_similarities[i] >= threshold)[0].tolist()
             ground_truth.append(neighbors)
-        
+        ground_truth_per_threshold[threshold] = ground_truth
         avg_neighbors = np.mean([len(n) for n in ground_truth])
-        total_pairs = sum([len(n) for n in ground_truth])
-        
-        threshold_results = {
+        print(f"  Threshold {threshold}: avg {avg_neighbors:.2f} neighbors per query")
+    
+    # =========================================================================
+    # Step 3: Initialize results structure per threshold
+    # =========================================================================
+    threshold_results_map = {}
+    for threshold in thresholds:
+        ground_truth = ground_truth_per_threshold[threshold]
+        threshold_results_map[threshold] = {
             'threshold': threshold,
-            'avg_neighbors': avg_neighbors,
-            'total_pairs': total_pairs,
+            'avg_neighbors': np.mean([len(n) for n in ground_truth]),
+            'total_pairs': sum([len(n) for n in ground_truth]),
             'algorithms': {}
         }
+    
+    # =========================================================================
+    # Step 4: For each algorithm and compression length, compute similarity 
+    #         matrix ONCE, then evaluate all thresholds
+    # =========================================================================
+    for algo_name in algorithms:
+        print(f"\n{'='*60}")
+        print(f"Algorithm: {algo_name}")
+        print(f"{'='*60}")
         
-        # Test each algorithm
-        for algo_name in algorithms:
-            print(f"\n{algo_name}:")
-            algo_results = {}
+        # Initialize results storage for this algorithm across all thresholds
+        for threshold in thresholds:
+            threshold_results_map[threshold]['algorithms'][algo_name] = {}
+        
+        for k in compression_lengths:
+            print(f"\n  Compression length k={k}")
             
-            for k in compression_lengths:
-                print(f"  Compression length k={k}")
+            # Create model and compute sketches + similarity matrix ONCE
+            AlgoClass = ALGO_MAP[algo_name]
+            model = AlgoClass(seed=seed)
+            
+            # Compute estimated similarity matrix (sketches computed internally)
+            est_similarity_matrix = compute_estimated_similarity_matrix(
+                model, X_train, X_query, algo_name, similarity_score, k=k
+            )
+            
+            # Now iterate through all thresholds using the pre-computed matrix
+            for threshold in thresholds:
+                ground_truth = ground_truth_per_threshold[threshold]
                 
-                AlgoClass = ALGO_MAP[algo_name]
-                model = AlgoClass(seed=seed)
-                
-                # Compress and retrieve using utility function
-                retrieved = compress_and_retrieve(
-                    model, X_train, X_query, algo_name, threshold, similarity_score, k=k
-                )
+                # Extract neighbors above threshold from estimated similarity matrix
+                retrieved = []
+                for i in range(len(X_query)):
+                    neighbors = np.where(est_similarity_matrix[i] >= threshold)[0].tolist()
+                    retrieved.append(neighbors)
                 
                 # Compute metrics
                 metrics = compute_retrieval_metrics(ground_truth, retrieved, retrieval_metric)
                 
-                print(f"    {retrieval_metric.capitalize()}: {metrics[retrieval_metric]:.4f} ± {metrics[f'{retrieval_metric}_std']:.4f}")
+                print(f"    Threshold {threshold}: {retrieval_metric.capitalize()} = {metrics[retrieval_metric]:.4f}")
                 
-                algo_results[k] = metrics
-            
-            threshold_results['algorithms'][algo_name] = algo_results
-        
-        results['experiments'].append(threshold_results)
+                # Store results
+                threshold_results_map[threshold]['algorithms'][algo_name][k] = metrics
+    
+    # =========================================================================
+    # Step 5: Organize results in the expected format (per threshold)
+    # =========================================================================
+    for threshold in thresholds:
+        results['experiments'].append(threshold_results_map[threshold])
     
     # Save results
     if output_path:
