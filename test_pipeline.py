@@ -288,8 +288,6 @@ class AlgorithmTester:
             test_metrics = metrics.copy()
             
         # If both cosine and inner_product are requested, prioritize cosine (remove inner_product)
-        # unless user explicitly asked for inner_product separately? 
-        # The user requested: "If I added cosine metric... remove inner_product"
         # Determine which algorithms to test
         if algorithms is None:
             test_inner_product = ['BinSketch', 'BCS']
