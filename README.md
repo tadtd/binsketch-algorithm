@@ -1,136 +1,100 @@
-# BinSketch Algorithm Experiments
+# BinSketch Algorithm
 
-This repository provides a comprehensive implementation and evaluation framework for binary sketching algorithms designed for efficient similarity estimation on high-dimensional binary data.
+Implementation and evaluation of binary sketching algorithms for efficient similarity estimation on high-dimensional sparse binary data.
 
-## About This Repository
+Based on the paper: [*Efficient Sketching Algorithm for Sparse Binary Data*](https://arxiv.org/pdf/1910.04658) (Pratap et al., 2019).
 
-BinSketch algorithms are essential for handling large-scale binary datasets where computing exact similarities is computationally expensive. This repository implements several key algorithms and provides:
+---
 
-- **Reproducible experiments** comparing algorithm performance
-- **Multiple similarity metrics** (inner product, cosine similarity, Jaccard similarity)
-- **Real-world datasets** (BBC, Enron, KOS, NYTimes)
-- **Comprehensive evaluation** covering both accuracy and retrieval tasks
-- **Easy-to-use interface** for running experiments locally or on Kaggle
+## Installation
 
-The implementation focuses on efficiency and accuracy, providing researchers and practitioners with tools to evaluate and compare binary sketching methods on their own datasets.
+This project uses [uv](https://docs.astral.sh/uv/) for fast dependency management.
 
-## Experiments
-- **Experiment 1**: Accuracy of similarity estimation (MSE-based evaluation)
-- **Experiment 2**: Retrieval performance (Precision/Recall/F1/Accuracy)
+### Prerequisites
 
-## How to Run (Kaggle)
+- Python 3.14+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
-1. Upload the provided notebook (e.g. `bin_sketch.ipynb`) to [Kaggle Notebooks](https://www.kaggle.com/code).
-2. (If needed) Add your GitHub token to Kaggle Secrets for private repo access.
-3. Run all cells. The notebook will:
-   - Clone the code
-   - Download and process datasets
-   - Run Experiment 1 (accuracy) and Experiment 2 (ranking)
-   - Save results/plots to the output directory
-4. Download results from the sidebar if needed.
+### Setup the project
 
-## Customizing
-- Edit variables in the notebook cells to change dataset, metric, algorithms, or experiment type.
-- All commands and workflow are already scripted in the notebook.
+```bash
+git clone https://github.com/tadtd/binsketch-algorithm.git
+cd binsketch-algorithm
 
-## Example: Run Experiment 1 (in notebook)
-```python
-!python main.py --experiment 1 --algo BinSketch BCS --data_path ./data/nytimes_binary.npy --ground_truth_path ground_truth_exp1_nytimes_inner_product.json --seed 42 --threshold 120 150 180 200 220 250 270 300 --similarity_score inner_product --eval_metric mse --use_gpu
+# Create virtual environment and install dependencies
+uv sync
+```
+---
+
+## How to Run
+
+### 1. Download and process data
+
+Download raw datasets from Google Drive:
+
+```bash
+uv run python -c "
+import gdown
+gdown.download_folder(
+    'https://drive.google.com/drive/folders/1ARBY9cIGj_jigi5Y88CtUy-GMj2clrXj',
+    output='./raw',
+    quiet=False,
+    use_cookies=False
+)
+"
 ```
 
-## Example: Run Experiment 2 (in notebook)
-```python
-!python main.py --experiment 2 --algo BinSketch BCS MinHash --data_path ./data/nytimes_binary.npy --ground_truth_path ground_truth_exp2_nytimes_jaccard_similarity.json --train_ratio .9 --seed 42 --threshold .1 .2 .4 .5 .6 .7 .85 .95 --similarity_score jaccard_similarity --retrieval_metric f1 --use_gpu
+Convert raw data to `.npy` format:
+
+```bash
+uv run python scripts/convert.py
 ```
 
-**Just upload and run the notebook—no manual setup needed!**
+### 2. Run experiments
 
-## How to Run Experiments on Your Own Computer
+**Experiment 1 – Accuracy of similarity estimation (MSE)**
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/tadtd/binsketch-algorithm.git
-   cd binsketch-algorithm
-   ```
+```bash
+uv run python main.py --experiment 1 \
+    --algo BinSketch BCS \
+    --data_path ./data/nytimes_binary.npy \
+    --seed 42 \
+    --threshold 120 150 180 200 220 250 270 300 \
+    --similarity_score inner_product \
+    --eval_metric mse \
+```
 
-2. **Create and activate a virtual environment (optional)**
-   
-   **Option A: Using uv (Recommended - faster)**
-   ```bash
-   # Install uv if you haven't already
-   pip install uv
-   
-   # Create and activate virtual environment
-   uv venv venv
-   # On Unix/macOS:
-   source venv/bin/activate
-   # On Windows:
-   venv\Scripts\activate
-   ```
-   
-   **Option B: Using standard venv**
-   ```bash
-   python -m venv venv
-   # On Unix/macOS:
-   source venv/bin/activate
-   # On Windows:
-   venv\Scripts\activate
-   ```
+**Experiment 2 – Retrieval performance (Precision/Recall/F1)**
 
-3. **Install dependencies**
-   
-   **If using uv:**
-   ```bash
-   uv sync
-   ```
-   
-   **If using standard pip:**
-   ```bash
-   pip install -e .
-   pip install gdown
-   ```
+```bash
+uv run python main.py --experiment 2 \
+    --algo BinSketch BCS MinHash \
+    --data_path ./data/nytimes_binary.npy \
+    --train_ratio .9 \
+    --seed 42 \
+    --threshold .1 .2 .4 .5 .6 .7 .85 .95 \
+    --similarity_score jaccard_similarity \
+    --retrieval_metric f1 \
+```
 
-4. **Download and preprocess the datasets**
-   - Download the raw data from Google Drive:
-     ```python
-     import gdown
-     gdown.download_folder('https://drive.google.com/drive/folders/1ARBY9cIGj_jigi5Y88CtUy-GMj2clrXj', output='./raw', quiet=False, use_cookies=False)
-     ```
-   - Convert the raw data to .npy format:
-     ```bash
-     python scripts/convert.py
-     ```
+Other datasets: `bbc_binary.npy`, `enron_binary.npy`, `kos_binary.npy`
 
-5. **Run Experiment 1 (Accuracy Estimation)**
-   ```bash
-   # Generate ground truth
-   python scripts/save_ground_truth.py --experiment 1 --data_path ./data/nytimes_binary.npy --similarity_score inner_product --seed 42
-   
-   # Run experiment
-   python main.py --experiment 1 --algo BinSketch BCS --data_path ./data/nytimes_binary.npy --ground_truth_path ground_truth_exp1_nytimes_inner_product.json --seed 42 --threshold 120 150 180 200 220 250 270 300 --similarity_score inner_product --eval_metric mse
-   ```
+**NOTE:** To leverage the power of GPU (e.g. Kaggle), you can view the notebook for interactive runs.
+Results and plots are saved to `results/experiment1/` and `results/experiment2/`.
 
-6. **Run Experiment 2 (Retrieval/Ranking)**
-   ```bash
-   # Generate ground truth
-   python scripts/save_ground_truth.py --experiment 2 --data_path ./data/nytimes_binary.npy --similarity_score jaccard_similarity --train_ratio .9 --seed 42
-   
-   # Run experiment
-   python main.py --experiment 2 --algo BinSketch BCS MinHash --data_path ./data/nytimes_binary.npy --ground_truth_path ground_truth_exp2_nytimes_jaccard_similarity.json --train_ratio .9 --seed 42 --threshold .1 .2 .4 .5 .6 .7 .85 .95 --similarity_score jaccard_similarity --retrieval_metric f1
-   ```
+---
 
-7. **Check the output directory for results and plots.**
-
-## Project Structure
+## Folder structure
 
 ```
 binsketch-algorithm/
-├── bin_sketch.ipynb         # Main Kaggle notebook
-├── main.py                  # CLI experiment runner
-├── pyproject.toml           # Project metadata
-├── uv.lock                  # uv lock file
-├── README.md                # This file
-├── data/                    # Processed datasets (auto-downloaded)
+├── bin_sketch.ipynb       # Jupyter notebook for interactive runs (e.g. Kaggle)
+├── main.py                # CLI experiment runner
+├── pyproject.toml         # Project metadata and dependencies
+├── uv.lock                # Locked dependency versions
+├── README.md
+│
+├── data/                  # Processed datasets (.npy)
 │   ├── bbc_binary.npy
 │   ├── bbc_vocab.npy
 │   ├── enron_binary.npy
@@ -139,7 +103,8 @@ binsketch-algorithm/
 │   ├── kos_vocab.npy
 │   ├── nytimes_binary.npy
 │   └── nytimes_vocab.npy
-├── raw/                     # Raw datasets (auto-downloaded)
+│
+├── raw/                   # Raw datasets (UCI bag-of-words format)
 │   ├── bbc/
 │   │   ├── docword.bbc.txt.gz
 │   │   └── vocab.bbc.txt
@@ -152,7 +117,8 @@ binsketch-algorithm/
 │   └── nytimes/
 │       ├── docword.nytimes.txt.gz
 │       └── vocab.nytimes.txt
-├── src/                     # Source code
+│
+├── src/                   # Core implementation
 │   ├── __init__.py
 │   ├── gpu_utils.py
 │   ├── metric.py
@@ -165,15 +131,28 @@ binsketch-algorithm/
 │       ├── binsketch.py
 │       ├── minhash.py
 │       └── simhash.py
-├── experiment/              # Experiment scripts
+│
+├── experiment/            # Experiment runners
 │   ├── __init__.py
-│   ├── experiment1.py
-│   ├── experiment2.py
+│   ├── experiment1.py     # MSE-based accuracy evaluation
+│   ├── experiment2.py    # Retrieval (Precision/Recall/F1)
 │   └── utils.py
-├── scripts/                 # Data processing scripts
-│   ├── convert.py
+│
+├── scripts/               # Data processing
+│   ├── convert.py        # raw → .npy conversion
 │   ├── filter_json.py
 │   └── save_ground_truth.py
-└── tests/                   # Test scripts
+│
+├── results/               # Output plots and results
+│   ├── experiment1/
+│   └── experiment2/
+│
+└── tests/
     └── test_pipeline.py
 ```
+
+---
+
+## Reference
+
+Pratap, R., Bera, D., & Revanuru, K. (2019). *Efficient Sketching Algorithm for Sparse Binary Data.* arXiv:1910.04658. [https://arxiv.org/pdf/1910.04658](https://arxiv.org/pdf/1910.04658)
